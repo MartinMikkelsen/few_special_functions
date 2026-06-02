@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "few-special-functions"
+requires-python = ">=3.8"
+description = "Special mathematical functions: Fresnel, Clausen, Fermi-Dirac, Debye, Marcum Q"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dynamic = ["version"]
+
+[tool.maturin]
+# Activate the PyO3 extension-module feature when building for Python
+features = ["extension-module"]

@@ -53,3 +53,43 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
+
+  python:
+    name: Python bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build and install Python extension
+        run: maturin develop --features extension-module
+
+      - name: Smoke-test Python bindings
+        run: |
+          python - <<'EOF'
+          import math
+          import few_special_functions as fsf
+
+          assert abs(fsf.clausen(2, math.pi/2) - 0.9159655941772190) < 1e-10
+          assert abs(fsf.fermi_dirac_integral(0.5, 0.0) - 0.6780938951530457) < 1e-10
+          assert abs(fsf.fresnel_c(1.0) - 0.7798934003604542) < 1e-6
+          assert abs(fsf.fresnel_s(1.0) - 0.4382591473903547) < 1e-6
+          assert abs(fsf.debye_function(3.0, 1.0, 2.0) - 0.44112) < 1e-4
+          assert abs(fsf.marcum_q(1.0, 0.2, 0.6) - 0.838249985438908) < 1e-9
+          c, s = fsf.fresnel(1.0)
+          assert c == fsf.fresnel_c(1.0)
+          assert s == fsf.fresnel_s(1.0)
+          print("All Python binding smoke tests passed.")
+          EOF

@@ -3,9 +3,19 @@ name = "few_special_functions"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "few_special_functions"
+# cdylib = Python extension module; rlib = normal Rust library + cargo test
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Activate with: maturin build  or  cargo build --features extension-module
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
 libm = "0.2"
 num-complex = "0.4"
+pyo3 = { version = "0.28", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
