@@ -2,7 +2,10 @@ use few_special_functions::debye::debye_function;
 
 fn main() {
     println!("Debye function D_n(β=1, x)");
-    println!("{:>6}  {:>12}  {:>12}  {:>12}  {:>12}", "x", "n=1", "n=2", "n=3", "n=4");
+    println!(
+        "{:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
+        "x", "n=1", "n=2", "n=3", "n=4"
+    );
     println!("{}", "-".repeat(58));
 
     let xs = [0.0, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0];

@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision)]
 use few_special_functions::clausen::{clausen, clausen_n20};
 use std::f64::consts::PI;
 
@@ -46,7 +47,10 @@ fn cl1_symmetry() {
     for &t in &[0.5_f64, 1.0, 2.0, PI / 3.0] {
         let v = clausen(1, t);
         assert!((clausen(1, -t) - v).abs() < 1e-12, "symmetry failed at {t}");
-        assert!((clausen(1, t + 2.0 * PI) - v).abs() < 1e-12, "periodicity failed at {t}");
+        assert!(
+            (clausen(1, t + 2.0 * PI) - v).abs() < 1e-12,
+            "periodicity failed at {t}"
+        );
     }
 }
 

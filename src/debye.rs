@@ -47,10 +47,14 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
         let an = -(i as f64) * (i as f64 - a);
         b += 2.0;
         d = an * d + b;
-        if d.abs() < TINY { d = TINY; }
+        if d.abs() < TINY {
+            d = TINY;
+        }
         d = 1.0 / d;
         c = b + an / c;
-        if c.abs() < TINY { c = TINY; }
+        if c.abs() < TINY {
+            c = TINY;
+        }
         let delta = d * c;
         h *= delta;
         if (delta - 1.0).abs() < 3e-15 {

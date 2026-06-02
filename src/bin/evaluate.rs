@@ -6,10 +6,7 @@
 ///   cargo run --bin evaluate -- debye <n> <beta> <x>
 ///   cargo run --bin evaluate -- fresnel <x>
 use few_special_functions::{
-    clausen::clausen,
-    debye::debye_function,
-    fermi_dirac::fermi_dirac_integral,
-    fresnel::fresnel,
+    clausen::clausen, debye::debye_function, fermi_dirac::fermi_dirac_integral, fresnel::fresnel,
 };
 
 fn main() {

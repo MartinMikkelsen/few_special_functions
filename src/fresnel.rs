@@ -1,5 +1,5 @@
 use num_complex::Complex;
-use std::f64::consts::{PI, FRAC_2_SQRT_PI};
+use std::f64::consts::{FRAC_2_SQRT_PI, PI};
 
 /// Complex error function erf(z).
 ///

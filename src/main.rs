@@ -14,8 +14,13 @@ fn main() {
     // Cl_2(π/3) — a well-known value: Cl_2(π/3) = Catalan-related ≈ 1.01494
     println!("Cl_2(π/3) = {:.6}", clausen(2, std::f64::consts::PI / 3.0));
     // Cl_2(π/2) ≈ 0.91597 (Catalan's constant G)
-    println!("Cl_2(π/2) = {:.6} (≈ Catalan G ≈ 0.915966)", clausen(2, std::f64::consts::PI / 2.0));
+    println!(
+        "Cl_2(π/2) = {:.6} (≈ Catalan G ≈ 0.915966)",
+        clausen(2, std::f64::consts::PI / 2.0)
+    );
     // Cl_1(π/2) = -ln(√2) ≈ -0.34657
-    println!("Cl_1(π/2) = {:.6} (expect ≈ -0.34657)", clausen(1, std::f64::consts::PI / 2.0));
+    println!(
+        "Cl_1(π/2) = {:.6} (expect ≈ -0.34657)",
+        clausen(1, std::f64::consts::PI / 2.0)
+    );
 }
-

@@ -194,7 +194,14 @@ fn horner(x: f64, coeffs: &[f64]) -> f64 {
     coeffs.iter().rev().fold(0.0, |acc, &c| acc * x + c)
 }
 
-fn rational_approx(j: f64, x: f64, a_low: &[f64], b_low: &[f64], a_high: &[f64], b_high: &[f64]) -> f64 {
+fn rational_approx(
+    j: f64,
+    x: f64,
+    a_low: &[f64],
+    b_low: &[f64],
+    a_high: &[f64],
+    b_high: &[f64],
+) -> f64 {
     if x < 2.0 {
         let t = x.exp();
         t * horner(t, a_low) / horner(t, b_low)
@@ -228,13 +235,34 @@ pub fn fermi_dirac_integral(j: f64, x: f64) -> f64 {
     if j == 0.0 {
         (1.0 + x.exp()).ln()
     } else if j == -0.5 {
-        rational_approx(j, x, &A_NEG_HALF_LOW, &B_NEG_HALF_LOW, &A_NEG_HALF_HIGH, &B_NEG_HALF_HIGH)
+        rational_approx(
+            j,
+            x,
+            &A_NEG_HALF_LOW,
+            &B_NEG_HALF_LOW,
+            &A_NEG_HALF_HIGH,
+            &B_NEG_HALF_HIGH,
+        )
     } else if j == 0.5 {
         rational_approx(j, x, &A_HALF_LOW, &B_HALF_LOW, &A_HALF_HIGH, &B_HALF_HIGH)
     } else if j == 1.5 {
-        rational_approx(j, x, &A_THREE_HALF_LOW, &B_THREE_HALF_LOW, &A_THREE_HALF_HIGH, &B_THREE_HALF_HIGH)
+        rational_approx(
+            j,
+            x,
+            &A_THREE_HALF_LOW,
+            &B_THREE_HALF_LOW,
+            &A_THREE_HALF_HIGH,
+            &B_THREE_HALF_HIGH,
+        )
     } else if j == 2.5 {
-        rational_approx(j, x, &A_FIVE_HALF_LOW, &B_FIVE_HALF_LOW, &A_FIVE_HALF_HIGH, &B_FIVE_HALF_HIGH)
+        rational_approx(
+            j,
+            x,
+            &A_FIVE_HALF_LOW,
+            &B_FIVE_HALF_LOW,
+            &A_FIVE_HALF_HIGH,
+            &B_FIVE_HALF_HIGH,
+        )
     } else {
         general_approx(j, x)
     }
@@ -244,4 +272,3 @@ pub fn fermi_dirac_integral(j: f64, x: f64) -> f64 {
 pub fn fermi_dirac_integral_norm(j: f64, x: f64) -> f64 {
     fermi_dirac_integral(j, x) / libm::tgamma(j + 1.0)
 }
-

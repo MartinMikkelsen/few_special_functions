@@ -13,7 +13,10 @@ fn main() {
     }
 
     println!();
-    println!("Cl₂(π/2) = Catalan's constant G ≈ {:.15}", clausen(2, PI / 2.0));
+    println!(
+        "Cl₂(π/2) = Catalan's constant G ≈ {:.15}",
+        clausen(2, PI / 2.0)
+    );
     println!("Cl₂(π/3) ≈ {:.15}", clausen(2, PI / 3.0));
     println!("Cl₂(π)   = 0 (exact): {}", clausen(2, PI));
     println!();

@@ -1,9 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use few_special_functions::{
-    clausen::clausen,
-    debye::debye_function,
-    fermi_dirac::fermi_dirac_integral,
-    fresnel::fresnel,
+    clausen::clausen, debye::debye_function, fermi_dirac::fermi_dirac_integral, fresnel::fresnel,
 };
 
 fn bench_clausen(c: &mut Criterion) {
@@ -53,5 +50,11 @@ fn bench_fresnel(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_clausen, bench_fermi_dirac, bench_debye, bench_fresnel);
+criterion_group!(
+    benches,
+    bench_clausen,
+    bench_fermi_dirac,
+    bench_debye,
+    bench_fresnel
+);
 criterion_main!(benches);

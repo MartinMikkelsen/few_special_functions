@@ -48,8 +48,14 @@ fn odd_symmetry() {
     for &x in &[0.5_f64, 1.0, 1.5, 2.0, 3.0, 5.0] {
         let (cp, sp, _) = fresnel(x);
         let (cn, sn, _) = fresnel(-x);
-        assert!((cp + cn).abs() < 1e-10, "C odd symmetry at {x}: {cp} vs {cn}");
-        assert!((sp + sn).abs() < 1e-10, "S odd symmetry at {x}: {sp} vs {sn}");
+        assert!(
+            (cp + cn).abs() < 1e-10,
+            "C odd symmetry at {x}: {cp} vs {cn}"
+        );
+        assert!(
+            (sp + sn).abs() < 1e-10,
+            "S odd symmetry at {x}: {sp} vs {sn}"
+        );
     }
 }
 
