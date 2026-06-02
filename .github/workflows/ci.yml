@@ -70,15 +70,17 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install maturin
-        run: pip install maturin
+      - name: Create virtualenv and install maturin
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install maturin
 
       - name: Build and install Python extension
-        run: maturin develop --features extension-module
+        run: .venv/bin/maturin develop --features extension-module
 
       - name: Smoke-test Python bindings
         run: |
-          python - <<'EOF'
+          .venv/bin/python - <<'EOF'
           import math
           import few_special_functions as fsf
 
