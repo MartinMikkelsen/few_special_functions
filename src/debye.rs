@@ -2,7 +2,7 @@
 ///
 /// Uses a convergent series for x < a+1 and the Lentz continued fraction
 /// for Q(a,x) = 1 - P(a,x) when x ≥ a+1.
-fn inc_gamma_p(a: f64, x: f64) -> f64 {
+pub(crate) fn inc_gamma_p(a: f64, x: f64) -> f64 {
     debug_assert!(a > 0.0 && x >= 0.0);
     if x == 0.0 {
         return 0.0;
