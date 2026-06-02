@@ -106,7 +106,7 @@ fn bessel_i_ratio(mu: f64, xi: f64) -> f64 {
     let mut d = 0.0_f64;
     for j in 1_usize..=300 {
         let b = 2.0 * (mu + j as f64 - 1.0) / xi;
-        d = b + d;
+        d += b;
         if d.abs() < TINY {
             d = TINY;
         }
@@ -128,7 +128,8 @@ fn bessel_i_ratio(mu: f64, xi: f64) -> f64 {
 
 /// log of A_n from eq. (32): lnΓ(μ+½+n) − lnΓ(μ+½−n) − n·ln 2 − lnΓ(n+1)
 fn ln_a(n: i32, mu: f64) -> f64 {
-    libm::lgamma(mu + 0.5 + n as f64) - libm::lgamma(mu + 0.5 - n as f64)
+    libm::lgamma(mu + 0.5 + n as f64)
+        - libm::lgamma(mu + 0.5 - n as f64)
         - n as f64 * 2.0_f64.ln()
         - libm::lgamma(n as f64 + 1.0)
 }
@@ -145,7 +146,11 @@ fn half_zeta2(x: f64, y: f64) -> f64 {
             -(((2700.0 * x + 2142.0) * x + 657.0) * x + 73.0) / 540.0,
             ((((181440.0 * x + 177552.0) * x + 76356.0) * x + 15972.0) * x + 1331.0) / 12960.0,
         ];
-        let s: f64 = c.iter().enumerate().map(|(k, &ck)| ck * z.powi(k as i32)).sum();
+        let s: f64 = c
+            .iter()
+            .enumerate()
+            .map(|(k, &ck)| ck * z.powi(k as i32))
+            .sum();
         (2.0 * x + 1.0).powi(3) * s * s / 2.0
     } else {
         let r = (1.0 + 4.0 * x * y).sqrt();
@@ -375,7 +380,7 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
     } else if f1 < y && y < f2 {
         marcum_q_large_m(m, x, y)
     } else {
-        marcum_q_quadrature(m / m, x / m, y / m, xi / m)
+        marcum_q_quadrature(m, x / m, y / m, xi / m)
     };
 
     if qv > 1.0 && qv < 1.0 + f64::EPSILON {
