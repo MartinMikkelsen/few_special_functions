@@ -208,6 +208,17 @@ fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64]) -> f64 {
         (2.0 * PI - theta_mod, (-1.0_f64).powi((n as i32) + 1))
     };
 
+    // phi = 0 after folding means theta is a multiple of 2π
+    if phi == 0.0 {
+        return match n {
+            1 => f64::INFINITY,
+            2 | 4 | 6 => 0.0,
+            3 => ZETA_3,
+            5 => ZETA_5,
+            _ => unreachable!(),
+        };
+    }
+
     if n == 1 {
         if phi.abs() < 1e-14 {
             return f64::INFINITY;
