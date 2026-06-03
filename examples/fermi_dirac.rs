@@ -33,7 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = SVGBackend::new("fermi_dirac.svg", (800, 500)).into_drawing_area();
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
-        .caption("Normalized Fermi-Dirac Integrals F̃_j(x)", ("sans-serif", 22))
+        .caption(
+            "Normalized Fermi-Dirac Integrals F̃_j(x)",
+            ("sans-serif", 22),
+        )
         .margin(20)
         .x_label_area_size(35)
         .y_label_area_size(55)

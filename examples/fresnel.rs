@@ -29,12 +29,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pts: Vec<_> = (0..=500).map(|i| i as f64 * 5.0 / 500.0).collect();
 
     chart
-        .draw_series(LineSeries::new(pts.iter().map(|&x| (x, fresnel_c(x))), &BLUE))?
+        .draw_series(LineSeries::new(
+            pts.iter().map(|&x| (x, fresnel_c(x))),
+            &BLUE,
+        ))?
         .label("C(x)")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], BLUE));
 
     chart
-        .draw_series(LineSeries::new(pts.iter().map(|&x| (x, fresnel_s(x))), &RED))?
+        .draw_series(LineSeries::new(
+            pts.iter().map(|&x| (x, fresnel_s(x))),
+            &RED,
+        ))?
         .label("S(x)")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], RED));
 
