@@ -2,6 +2,8 @@
 name = "few_special_functions"
 version = "0.1.0"
 edition = "2024"
+description = "A few special mathematical functions"
+keywords = ["mathematics", "special-functions", "numerics"]   # max 5
 
 [lib]
 name = "few_special_functions"
