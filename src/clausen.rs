@@ -278,18 +278,54 @@ fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64]) -> f64 {
     sign * (s1 - PI / 4.0 * s2)
 }
 
-/// Clausen function Cl_n(θ) for n = 1..6, using N = 10 quadrature nodes.
+/// Clausen function Cl_n(θ) for orders n = 1..6.
 ///
-/// Implements the Euler-Maclaurin algorithm from the reference paper
-/// (doi:10.1007/s10543-023-00944-4).
+/// The Clausen functions generalize the dilogarithm and are defined by the
+/// Fourier-like series:
+///
+/// ```text
+/// Cl_{2m}(θ)   = Σ_{k=1}^∞ sin(kθ) / k^{2m}
+/// Cl_{2m+1}(θ) = Σ_{k=1}^∞ cos(kθ) / k^{2m+1}
+/// ```
+///
+/// They appear in the calculation of loop integrals in quantum field theory
+/// and in certain lattice sums in condensed matter physics.
+///
+/// Uses N = 10 Euler-Maclaurin quadrature nodes (relative error < 10⁻¹⁴
+/// for most arguments; use [`clausen_n20`] for extended precision).
+///
+/// Reference: doi:10.1007/s10543-023-00944-4
 ///
 /// # Panics
 /// Panics if `n` is not in 1..=6.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::clausen::clausen;
+///
+/// // Cl_2(π/2) = Catalan's constant G ≈ 0.9159655941
+/// let g = clausen(2, std::f64::consts::FRAC_PI_2);
+/// assert!((g - 0.9159655941).abs() < 1e-9);
+/// ```
 pub fn clausen(n: usize, theta: f64) -> f64 {
     clausen_impl(n, theta, &XI_10, &A_10)
 }
 
-/// Clausen function Cl_n(θ) using N = 20 nodes for extended precision.
+/// Clausen function Cl_n(θ) using N = 20 quadrature nodes for extended precision.
+///
+/// Same algorithm as [`clausen`] but with more nodes, giving roughly 2× more
+/// significant digits. Use when you need accuracy below ~10⁻¹⁴.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::clausen::clausen_n20;
+///
+/// // Cl_2(π/3) ≈ 1.01494 (Clausen's original value)
+/// let v = clausen_n20(2, std::f64::consts::PI / 3.0);
+/// assert!((v - 1.01494).abs() < 1e-5);
+/// ```
 pub fn clausen_n20(n: usize, theta: f64) -> f64 {
     clausen_impl(n, theta, &XI_20, &A_20)
 }

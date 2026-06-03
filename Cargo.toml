@@ -19,6 +19,7 @@ pyo3 = { version = "0.28", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series", "full_palette"] }
 
 [[bench]]
 name = "benchmarks"

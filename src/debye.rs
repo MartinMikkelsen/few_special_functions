@@ -67,19 +67,53 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
 
 /// Generalized Debye function D_n(β, x).
 ///
-/// Defined as D_n(β, x) = (n/xⁿ) ∫₀ˣ tⁿ / (eᵝᵗ - 1) dt, normalized so
-/// D_n(β, 0) = 1.
+/// Defined as
 ///
-/// Uses the series from doi:10.1007/s10765-007-0256-1.
+/// ```text
+/// D_n(β, x) = (n / xⁿ) ∫₀ˣ tⁿ / (eᵝᵗ − 1) dt
+/// ```
+///
+/// normalized so that D_n(β, 0) = 1. The standard Debye function used in
+/// solid-state physics is the special case β = 1; the parameter β allows
+/// generalization to Bose-Einstein integrals with other exponents.
+///
+/// Uses the series expansion from doi:10.1007/s10765-007-0256-1.
 ///
 /// # Panics
 /// Panics if n ≤ 0, β ≤ 0, or x < 0.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::debye::debye_function;
+///
+/// // D_n(β, 0) = 1 by definition
+/// assert!((debye_function(2.0, 1.0, 0.0) - 1.0).abs() < 1e-14);
+///
+/// // D_n(β, x) is strictly less than 1 for x > 0
+/// assert!(debye_function(1.0, 1.0, 1.0) < 1.0);
+/// ```
 pub fn debye_function(n: f64, beta: f64, x: f64) -> f64 {
     debye_function_tol(n, beta, x, 1e-15, 2000)
 }
 
-/// Like [`debye_function`] but with explicit convergence tolerance and
-/// maximum number of series terms.
+/// Like [`debye_function`] but with explicit convergence tolerance `tol` and
+/// maximum number of series terms `max_terms`.
+///
+/// Useful when you need a looser tolerance for speed, or want to guard against
+/// slow convergence for unusual parameter combinations.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::debye::debye_function_tol;
+///
+/// // Should agree with debye_function to within a few times the tolerance
+/// use few_special_functions::debye::debye_function;
+/// let v1 = debye_function(2.0, 1.0, 1.0);
+/// let v2 = debye_function_tol(2.0, 1.0, 1.0, 1e-8, 500);
+/// assert!((v1 - v2).abs() < 1e-5);
+/// ```
 pub fn debye_function_tol(n: f64, beta: f64, x: f64, tol: f64, max_terms: usize) -> f64 {
     assert!(n > 0.0, "n must be positive, got {n}");
     assert!(beta > 0.0, "beta must be positive, got {beta}");

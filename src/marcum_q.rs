@@ -393,14 +393,41 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
 
 /// Generalized Marcum Q-function Q_μ(a, b).
 ///
-/// Defined as Q_μ(a, b) = exp(−(a²+b²)/2) · Σ_{k=0}^∞ (a/b)^{μ−1+k} · I_{μ−1+k}(ab).
+/// Defined as
 ///
-/// Returns a value in [0, 1]. Requires μ ≥ 0.5, a ≥ 0, b ≥ 0.
+/// ```text
+/// Q_μ(a, b) = exp(−(a²+b²)/2) · Σ_{k=0}^∞ (a/b)^{μ−1+k} · I_{μ−1+k}(ab)
+/// ```
+///
+/// where I_ν is the modified Bessel function of the first kind. Returns a
+/// value in \[0, 1\].
+///
+/// Widely used in communications and radar signal processing — for integer
+/// order M it gives the probability that a non-central chi-squared random
+/// variable with 2M degrees of freedom and non-centrality parameter a²
+/// exceeds the threshold b².
+///
+/// The implementation automatically selects among series expansion, asymptotic
+/// expansion, recurrence, and quadrature fallback depending on the input
+/// parameters.
 ///
 /// Reference: <https://arxiv.org/pdf/1311.0681v1>
 ///
 /// # Panics
 /// Panics if μ < 0.5, a < 0, or b < 0.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::marcum_q;
+///
+/// // Q_1(a, 0) = 1 for any a ≥ 0 (integrating the full distribution)
+/// assert!((marcum_q(1.0, 2.0, 0.0) - 1.0).abs() < 1e-12);
+///
+/// // Q_1(0, b) = exp(−b²/2) (Rayleigh tail)
+/// let b = 2.0_f64;
+/// assert!((marcum_q(1.0, 0.0, b) - (-b * b / 2.0).exp()).abs() < 1e-10);
+/// ```
 pub fn marcum_q(mu: f64, a: f64, b: f64) -> f64 {
     assert!(mu >= 0.5, "μ must be ≥ 0.5, got {mu}");
     assert!(a >= 0.0, "a must be ≥ 0, got {a}");
@@ -408,14 +435,26 @@ pub fn marcum_q(mu: f64, a: f64, b: f64) -> f64 {
     marcum_q_modified(mu, a * a / 2.0, b * b / 2.0)
 }
 
-/// Derivative ∂Q_M(a,b)/∂b of the Marcum Q-function.
+/// Derivative ∂Q_M(a,b)/∂b of the Marcum Q-function (integer order M).
 ///
+/// ```text
 /// dQ_M/db = −(b^M / a^{M−1}) · exp(−(a²+b²)/2) · I_{M−1}(ab)
+/// ```
 ///
-/// Computed in a numerically stable form using the scaled Bessel function.
+/// Computed in a numerically stable form using the scaled Bessel function
+/// exp(−ab) · I_{M−1}(ab) to avoid overflow for large arguments.
 ///
 /// # Panics
 /// Panics if M < 1 or a = 0.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::dq_db;
+///
+/// // dQ/db is always ≤ 0 (Q is non-increasing in b)
+/// assert!(dq_db(1, 1.0, 1.0) <= 0.0);
+/// ```
 pub fn dq_db(m: u32, a: f64, b: f64) -> f64 {
     assert!(m >= 1, "M must be ≥ 1, got {m}");
     assert!(a != 0.0, "a must be nonzero");

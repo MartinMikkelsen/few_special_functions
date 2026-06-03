@@ -59,15 +59,37 @@ fn cerfc_asymptotic(z: Complex<f64>) -> Complex<f64> {
     prefix * sum
 }
 
-/// Fresnel integrals C(x), S(x), and E(x) = C(x) + i·S(x).
+/// Fresnel integrals C(x), S(x), and the complex auxiliary E(x) = C(x) + i·S(x).
 ///
 /// NIST / MATLAB convention:
-///   C(x) = ∫₀ˣ cos(π/2 · t²) dt
-///   S(x) = ∫₀ˣ sin(π/2 · t²) dt
+///
+/// ```text
+/// C(x) = ∫₀ˣ cos(π/2 · t²) dt
+/// S(x) = ∫₀ˣ sin(π/2 · t²) dt
+/// ```
+///
+/// Both C and S are odd functions and approach ±1/2 as x → ±∞. The parametric
+/// curve (C(t), S(t)) traces the Euler (Cornu) spiral, used in diffraction
+/// optics and road/railway transition curve design.
 ///
 /// Computed via the identity C(x) + i·S(x) = (1+i)/2 · erf((√π/2)(1−i)x).
 ///
 /// Returns `(C, S, E)`.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::fresnel;
+///
+/// let (c, s, _e) = fresnel(0.0);
+/// assert_eq!(c, 0.0);
+/// assert_eq!(s, 0.0);
+///
+/// // Both integrals oscillate toward 0.5 as x → ∞ (envelope ~ 1/πx)
+/// let (c, s, _e) = fresnel(10.0);
+/// assert!((c - 0.5).abs() < 0.1);
+/// assert!((s - 0.5).abs() < 0.1);
+/// ```
 pub fn fresnel(x: f64) -> (f64, f64, Complex<f64>) {
     if x == 0.0 {
         let zero = Complex::new(0.0, 0.0);
@@ -90,11 +112,35 @@ pub fn fresnel(x: f64) -> (f64, f64, Complex<f64>) {
 }
 
 /// Fresnel cosine integral C(x) = ∫₀ˣ cos(π/2 · t²) dt.
+///
+/// See [`fresnel`] for the full definition and convention note.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::fresnel_c;
+///
+/// assert_eq!(fresnel_c(0.0), 0.0);
+/// // C(1) ≈ 0.7799 (tabulated value)
+/// assert!((fresnel_c(1.0) - 0.7799).abs() < 1e-4);
+/// ```
 pub fn fresnel_c(x: f64) -> f64 {
     fresnel(x).0
 }
 
 /// Fresnel sine integral S(x) = ∫₀ˣ sin(π/2 · t²) dt.
+///
+/// See [`fresnel`] for the full definition and convention note.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::fresnel_s;
+///
+/// assert_eq!(fresnel_s(0.0), 0.0);
+/// // S(1) ≈ 0.4383 (tabulated value)
+/// assert!((fresnel_s(1.0) - 0.4383).abs() < 1e-4);
+/// ```
 pub fn fresnel_s(x: f64) -> f64 {
     fresnel(x).1
 }

@@ -222,13 +222,32 @@ fn general_approx(j: f64, x: f64) -> f64 {
     .recip()
 }
 
-/// Complete Fermi-Dirac integral F_j(x) = ∫₀^∞ tʲ / (exp(t-x) + 1) dt
+/// Complete Fermi-Dirac integral F_j(x) = ∫₀^∞ tʲ / (exp(t-x) + 1) dt.
 ///
-/// Uses Antia (1993) rational approximations for j = -1/2, 1/2, 3/2, 5/2,
-/// exact formula for j = 0, and Aymerich-Humet et al. (1983) otherwise.
+/// Arises in solid-state physics as a measure of carrier statistics in
+/// semiconductors; the index `j` is typically a half-integer related to the
+/// dimensionality of the band structure.
+///
+/// Uses Antia (1993) rational approximations for j = −1/2, 1/2, 3/2, 5/2
+/// (relative error < 10⁻¹²), the exact formula ln(1 + eˣ) for j = 0, and the
+/// Aymerich-Humet et al. (1983) general approximation for other j values.
 ///
 /// # Panics
 /// Panics if `j < -0.5`.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fermi_dirac::fermi_dirac_integral;
+///
+/// // F_0(0) = ln(2) exactly
+/// let v = fermi_dirac_integral(0.0, 0.0);
+/// assert!((v - std::f64::consts::LN_2).abs() < 1e-14);
+///
+/// // F_{1/2}(0) ≈ 0.6781 (tabulated value)
+/// let v = fermi_dirac_integral(0.5, 0.0);
+/// assert!((v - 0.6781).abs() < 1e-4);
+/// ```
 pub fn fermi_dirac_integral(j: f64, x: f64) -> f64 {
     assert!(j >= -0.5, "j must be >= -0.5, got {j}");
 
@@ -268,7 +287,21 @@ pub fn fermi_dirac_integral(j: f64, x: f64) -> f64 {
     }
 }
 
-/// Normalised Fermi-Dirac integral F_j(x) / Γ(j+1)
+/// Normalized Fermi-Dirac integral F̃_j(x) = F_j(x) / Γ(j+1).
+///
+/// Dividing by Γ(j+1) removes the factorial growth, giving a function that
+/// approaches (eˣ)^{1/(j+1)} in the degenerate limit x → +∞. Useful when
+/// comparing Fermi-Dirac statistics across different orders.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fermi_dirac::fermi_dirac_integral_norm;
+///
+/// // F̃_{1/2}(0) ≈ 0.7652
+/// let v = fermi_dirac_integral_norm(0.5, 0.0);
+/// assert!((v - 0.7652).abs() < 1e-4);
+/// ```
 pub fn fermi_dirac_integral_norm(j: f64, x: f64) -> f64 {
     fermi_dirac_integral(j, x) / libm::tgamma(j + 1.0)
 }
