@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A few special mathematical functions"
 keywords = ["mathematics", "special-functions", "numerics"]   # max 5
+license = "MIT"
 
 [lib]
 name = "few_special_functions"
