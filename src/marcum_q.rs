@@ -326,22 +326,22 @@ fn marcum_q_large_m(m: f64, x: f64, y: f64) -> f64 {
     result.clamp(0.0, 1.0)
 }
 
+// 4-point Gauss-Legendre nodes/weights on [−1,1] (Abramowitz & Stegun table 25.4).
+const GL4_X: [f64; 4] = [
+    -0.86113631159405258,
+    -0.33998104358485626,
+    0.33998104358485626,
+    0.86113631159405258,
+];
+const GL4_W: [f64; 4] = [
+    0.34785484513745386,
+    0.65214515486254614,
+    0.65214515486254614,
+    0.34785484513745386,
+];
+
 /// Quadrature fallback (section 5) using composite 4-point GL on 256 panels.
 fn marcum_q_quadrature(m: f64, x: f64, y: f64, xi: f64) -> f64 {
-    // 4-point GL nodes/weights on [−1,1]
-    const GL4_X: [f64; 4] = [
-        -0.861136311594952,
-        -0.339981043584856,
-        0.339981043584856,
-        0.861136311594952,
-    ];
-    const GL4_W: [f64; 4] = [
-        0.347854845137454,
-        0.652145154862626,
-        0.652145154862626,
-        0.347854845137454,
-    ];
-
     let upper = PI - 1.0 / 512.0;
     let n_panels = 256_usize;
     let h = upper / n_panels as f64;
@@ -469,6 +469,28 @@ pub fn dq_db(m: u32, a: f64, b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gl4_rule_is_exact_to_degree_7() {
+        // An n-point Gauss-Legendre rule integrates polynomials up to degree
+        // 2n−1 exactly; ∫_{−1}^{1} x^k dx = 2/(k+1) for even k, 0 for odd k.
+        for k in 0..=7u32 {
+            let got: f64 = GL4_X
+                .iter()
+                .zip(GL4_W.iter())
+                .map(|(&x, &w)| w * x.powi(k as i32))
+                .sum();
+            let want = if k % 2 == 0 {
+                2.0 / (k as f64 + 1.0)
+            } else {
+                0.0
+            };
+            assert!(
+                (got - want).abs() < 1e-15,
+                "GL4 not exact for x^{k}: got {got:.17e}, want {want:.17e}"
+            );
+        }
+    }
 
     #[test]
     fn erfc_known() {
