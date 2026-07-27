@@ -1,6 +1,6 @@
-use std::f64::consts::{FRAC_2_SQRT_PI, PI};
+use std::f64::consts::PI;
 
-use crate::debye::inc_gamma_p;
+use crate::debye::inc_gamma_q;
 
 // ─── Mathematical primitives ─────────────────────────────────────────────────
 
@@ -9,20 +9,11 @@ fn erfc_real(x: f64) -> f64 {
     if x < 0.0 {
         return 2.0 - erfc_real(-x);
     }
-    if x < 4.0 {
-        // Series: erf(x) = (2/√π) Σ (-1)^n x^{2n+1} / (n!(2n+1))
-        let x2 = x * x;
-        let mut term = x;
-        let mut sum = x;
-        for n in 1_usize..=80 {
-            term *= -x2 / n as f64;
-            let contrib = term / (2 * n + 1) as f64;
-            sum += contrib;
-            if contrib.abs() < 1e-17 * sum.abs() {
-                break;
-            }
-        }
-        1.0 - FRAC_2_SQRT_PI * sum
+    if x < 6.0 {
+        // erfc(x) = Q(½, x²). The erf series this replaces reached terms of order 4·10⁴
+        // before being subtracted from 1, and the asymptotic series below x ≈ 6 was
+        // truncated at its smallest term while that term was still of order 10⁻⁸.
+        inc_gamma_q(0.5, x * x)
     } else {
         // Asymptotic: erfc(x) ~ exp(-x²)/(x√π) · Σ (-1)^m (2m-1)!!/(2x²)^m
         let x2 = x * x;
@@ -40,11 +31,6 @@ fn erfc_real(x: f64) -> f64 {
         }
         (-x2).exp() / (x * PI.sqrt()) * sum
     }
-}
-
-/// Regularized upper incomplete gamma Q(a, x) = 1 − P(a, x).
-fn upper_inc_gamma(a: f64, x: f64) -> f64 {
-    1.0 - inc_gamma_p(a, x)
 }
 
 /// Scaled modified Bessel function exp(−x) · I_n(x) for integer n ≥ 0.
@@ -126,12 +112,14 @@ fn bessel_i_ratio(mu: f64, xi: f64) -> f64 {
 
 // ─── Marcum Q helper functions ────────────────────────────────────────────────
 
-/// log of A_n from eq. (32): lnΓ(μ+½+n) − lnΓ(μ+½−n) − n·ln 2 − lnΓ(n+1)
-fn ln_a(n: i32, mu: f64) -> f64 {
-    libm::lgamma(mu + 0.5 + n as f64)
-        - libm::lgamma(mu + 0.5 - n as f64)
-        - n as f64 * 2.0_f64.ln()
-        - libm::lgamma(n as f64 + 1.0)
+/// Ratio A_n(μ)/A_{n−1}(μ) for the coefficients of eq. (32).
+///
+/// A_n(μ) = 2^{−n} Γ(μ+½+n) / (n! Γ(μ+½−n)) telescopes to (μ² − (n−½)²)/(2n). Unlike
+/// evaluating the Γ quotient through lnΓ, this keeps the sign: Γ(μ+½−n) is negative for
+/// half of the negative half-integer arguments reached when n > μ + ½.
+fn a_ratio(n: i32, mu: f64) -> f64 {
+    let nh = n as f64 - 0.5;
+    (mu * mu - nh * nh) / (2.0 * n as f64)
 }
 
 /// ζ²/2 from eq. (84), with Taylor expansion near δ = y − x − 1 ≈ 0.
@@ -220,9 +208,11 @@ fn marcum_q_small_x(m: f64, x: f64, y: f64) -> f64 {
     let mut s = 0.0;
     let mut term_factor = 1.0_f64;
     for n in 0_usize.. {
-        let t = term_factor * upper_inc_gamma(m + n as f64, y);
+        let t = term_factor * inc_gamma_q(m + n as f64, y);
         s += t;
-        if t.abs() <= f64::EPSILON * s.abs() {
+        // s stays 0 while the leading Q(m+n, y) underflow; testing then would stop
+        // the sum before it reaches its terms of largest magnitude
+        if s > 0.0 && t <= f64::EPSILON * s {
             break;
         }
         term_factor *= x / (n as f64 + 1.0);
@@ -261,6 +251,8 @@ fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
     let mut s = if x > y { 1.0 } else { 0.0 };
     let mut rho_t = rho_fac;
     let mut ef_cur = ef;
+    let mut a_lo = 1.0_f64; // A_n(μ−1), starting from A_0 = 1
+    let mut a_hi = 1.0_f64; // A_n(μ)
 
     for n in 1_i32..=500 {
         s += big_psi;
@@ -269,12 +261,10 @@ fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
         }
         rho_t = -rho_t;
         ef_cur /= xi;
-        if (m - 1.0) + 0.5 - n as f64 <= 0.0 || m + 0.5 - n as f64 <= 0.0 {
-            break;
-        }
         big_phi = (ef_cur - sigma * big_phi) / (n as f64 - 0.5);
-        let ln_an = ln_a(n, m - 1.0);
-        big_psi = rho_t * ln_an.exp() * (1.0 - (ln_a(n, m) - ln_an).exp() / rho0) * big_phi;
+        a_lo *= a_ratio(n, m - 1.0);
+        a_hi *= a_ratio(n, m);
+        big_psi = rho_t * (a_lo - a_hi / rho0) * big_phi;
     }
 
     s.max(0.0)
@@ -368,6 +358,10 @@ fn marcum_q_quadrature(m: f64, x: f64, y: f64, xi: f64) -> f64 {
 // ─── Core dispatch ────────────────────────────────────────────────────────────
 
 fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
+    if y == 0.0 {
+        // Q_μ(a, 0) = 1; the quadrature branch would divide by y here.
+        return 1.0;
+    }
     let xi = 2.0 * (x * y).sqrt();
     let (f1, f2) = f1_f2(x, m);
 
@@ -396,7 +390,7 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
 /// Defined as
 ///
 /// ```text
-/// Q_μ(a, b) = exp(−(a²+b²)/2) · Σ_{k=0}^∞ (a/b)^{μ−1+k} · I_{μ−1+k}(ab)
+/// Q_μ(a, b) = exp(−(a²+b²)/2) · Σ_{k=1−μ}^∞ (a/b)^k · I_k(ab)
 /// ```
 ///
 /// where I_ν is the modified Bessel function of the first kind. Returns a
@@ -500,6 +494,49 @@ mod tests {
         assert!((erfc_real(1.0) - 0.15729920705028513).abs() < 1e-12);
         // erfc(-1) = 2 - erfc(1)
         assert!((erfc_real(-1.0) - (2.0 - erfc_real(1.0))).abs() < 1e-15);
+    }
+
+    #[test]
+    fn erfc_relative_accuracy_below_the_asymptotic_split() {
+        // The erf series this replaces was subtracted from 1, costing five digits near x = 4.
+        #[allow(clippy::excessive_precision)]
+        let refs = [
+            (0.5_f64, 0.479500122186953462_f64),
+            (1.5, 0.0338948535246892729),
+            (2.5, 0.00040695201744495894),
+            (3.0, 0.0000220904969985854414),
+            (3.5, 7.43098372341412746e-7),
+            (3.9, 3.47922485972317423e-8),
+            (3.999, 1.55447494909950056e-8),
+            (4.5, 1.96616044154288748e-10),
+            (6.0, 2.15197367124989131e-17),
+            (20.0, 5.39586561160790086e-176),
+        ];
+        for (x, want) in refs {
+            let got = erfc_real(x);
+            let rel = (got - want).abs() / want;
+            assert!(
+                rel < 1e-11,
+                "erfc({x}): got {got:.17e}, want {want:.17e}, rel {rel:.2e}"
+            );
+            // erfc(−x) = 2 − erfc(x)
+            assert!((erfc_real(-x) - (2.0 - got)).abs() <= 4.0 * f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn a_ratio_keeps_the_sign_past_the_gamma_pole() {
+        // A_n(μ) = 2^{−n} Γ(μ+½+n)/(n! Γ(μ+½−n)); for μ = 0 the first ratio is negative
+        // because Γ(−½) < 0, which lnΓ cannot express.
+        assert!(
+            (a_ratio(1, 0.0) - -0.125).abs() < 1e-15,
+            "{}",
+            a_ratio(1, 0.0)
+        );
+        assert!((a_ratio(1, 19.0) - 180.375).abs() < 1e-12);
+        // μ = n − ½ sits on the pole of Γ(μ+½−n): A_n and every later term vanish.
+        assert_eq!(a_ratio(1, 0.5), 0.0);
+        assert_eq!(a_ratio(3, 2.5), 0.0);
     }
 
     #[test]
