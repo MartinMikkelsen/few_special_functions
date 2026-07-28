@@ -14,6 +14,22 @@ pub(crate) fn inc_gamma_p(a: f64, x: f64) -> f64 {
     }
 }
 
+/// Regularized upper incomplete gamma Q(a, x) = Γ(a,x) / Γ(a).
+///
+/// Returns the continued fraction directly rather than `1 - inc_gamma_p`, which
+/// would round to zero as soon as Q(a,x) drops below the machine epsilon.
+pub(crate) fn inc_gamma_q(a: f64, x: f64) -> f64 {
+    debug_assert!(a > 0.0 && x >= 0.0);
+    if x == 0.0 {
+        return 1.0;
+    }
+    if x < a + 1.0 {
+        1.0 - inc_gamma_series(a, x)
+    } else {
+        inc_gamma_cf(a, x)
+    }
+}
+
 /// Series for P(a, x): exp(-x + a·ln(x) - ln Γ(a)) · Σ xᵏ / (a·(a+1)·…·(a+k))
 fn inc_gamma_series(a: f64, x: f64) -> f64 {
     let log_prefix = -x + a * x.ln() - libm::lgamma(a);
@@ -163,5 +179,29 @@ mod tests {
         assert!((inc_gamma_p(1.0, 1.0) - (1.0 - (-1.0_f64).exp())).abs() < 1e-12);
         // P(2, 1) = 1 - 2e⁻¹ ≈ 0.2642
         assert!((inc_gamma_p(2.0, 1.0) - (1.0 - 2.0 * (-1.0_f64).exp())).abs() < 1e-12);
+    }
+
+    #[test]
+    fn inc_gamma_q_relative_accuracy_in_the_tail() {
+        assert_eq!(inc_gamma_q(1.0, 0.0), 1.0);
+        // Q(1, x) = e^{-x} exactly, over a range where 1 - P(1, x) rounds to zero.
+        for &x in &[0.5_f64, 1.5, 2.0, 10.0, 40.0, 100.0, 300.0, 700.0] {
+            let want = (-x).exp();
+            let rel = (inc_gamma_q(1.0, x) - want).abs() / want;
+            assert!(rel < 1e-12, "Q(1,{x}) rel {rel:.2e}");
+        }
+        // Q(½, x) = erfc(√x)
+        #[allow(clippy::excessive_precision)]
+        let half = [
+            (0.5_f64, 0.317310507862914226_f64),
+            (2.0, 0.0455002638963585105),
+            (20.0, 2.53962858946993629e-10),
+            (100.0, 2.08848758376254478e-45),
+            (400.0, 5.39586561160790086e-176),
+        ];
+        for (x, want) in half {
+            let rel = (inc_gamma_q(0.5, x) - want).abs() / want;
+            assert!(rel < 1e-11, "Q(0.5,{x}) rel {rel:.2e}");
+        }
     }
 }
