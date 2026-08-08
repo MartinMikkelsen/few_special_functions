@@ -1,9 +1,9 @@
 [package]
 name = "few_special_functions"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "A few special mathematical functions"
-keywords = ["mathematics", "special-functions", "numerics"]   # max 5
+keywords = ["mathematics", "special-functions", "numerics", "functions"]   # max 5
 license = "MIT"
 
 [lib]

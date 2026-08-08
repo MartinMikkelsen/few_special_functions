@@ -12,6 +12,8 @@
 //! | Fresnel integrals C, S | [`fresnel`] | [`fresnel::fresnel`], [`fresnel::fresnel_c`], [`fresnel::fresnel_s`] |
 //! | Debye functions D_n(β, x) | [`debye`] | [`debye::debye_function`], [`debye::debye_function_tol`] |
 //! | Marcum Q-function | [`marcum_q`] | [`marcum_q::marcum_q`], [`marcum_q::dq_db`] |
+//! | Dawson integral D(x) | [`dawson`] | [`dawson::dawson`] |
+//! | Voigt function K(x, y) | [`voigt`] | [`voigt::voigt`] |
 //!
 //! ## Python bindings
 //!
@@ -23,10 +25,12 @@
 #![allow(clippy::excessive_precision)]
 
 pub mod clausen;
+pub mod dawson;
 pub mod debye;
 pub mod fermi_dirac;
 pub mod fresnel;
 pub mod marcum_q;
+pub mod voigt;
 
 // Python bindings — compiled only when the extension-module feature is active.
 #[cfg(feature = "extension-module")]

@@ -57,6 +57,22 @@ fn fresnel(x: f64) -> (f64, f64) {
     (c, s)
 }
 
+// ── Dawson ────────────────────────────────────────────────────────────────────
+
+/// Dawson's integral D(x) = e^{-x²} ∫₀ˣ e^{t²} dt.
+#[pyfunction]
+fn dawson(x: f64) -> f64 {
+    crate::dawson::dawson(x)
+}
+
+// ── Voigt ─────────────────────────────────────────────────────────────────────
+
+/// Real Voigt function K(x, y), y ≥ 0.
+#[pyfunction]
+fn voigt(x: f64, y: f64) -> f64 {
+    crate::voigt::voigt(x, y)
+}
+
 // ── Marcum Q ──────────────────────────────────────────────────────────────────
 
 /// Generalized Marcum Q-function Q_μ(a, b).
@@ -82,6 +98,8 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fresnel_c, m)?)?;
     m.add_function(wrap_pyfunction!(fresnel_s, m)?)?;
     m.add_function(wrap_pyfunction!(fresnel, m)?)?;
+    m.add_function(wrap_pyfunction!(dawson, m)?)?;
+    m.add_function(wrap_pyfunction!(voigt, m)?)?;
     m.add_function(wrap_pyfunction!(marcum_q, m)?)?;
     m.add_function(wrap_pyfunction!(dq_db, m)?)?;
     Ok(())

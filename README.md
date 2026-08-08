@@ -11,6 +11,8 @@ A Rust crate collecting a few special functions, with optional Python bindings v
 - [Debye functions](https://en.wikipedia.org/wiki/Debye_function)
 - [Fermi-Dirac integrals](https://en.wikipedia.org/wiki/Incomplete_Fermi%E2%80%93Dirac_integral)
 - [Fresnel integrals](https://en.wikipedia.org/wiki/Fresnel_integral)
+- [Dawson function](https://en.wikipedia.org/wiki/Dawson_function)
+- [Voigt profile](https://en.wikipedia.org/wiki/Voigt_profile)
 
 ## Install
 
