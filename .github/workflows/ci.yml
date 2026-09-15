@@ -90,7 +90,7 @@ jobs:
           assert abs(fsf.fresnel_s(1.0) - 0.4382591473903547) < 1e-6
           assert abs(fsf.debye_function(3.0, 1.0, 2.0) - 0.44112) < 1e-4
           assert abs(fsf.marcum_q(1.0, 0.2, 0.6) - 0.838249985438908) < 1e-9
-          c, s = fsf.fresnel(1.0)
+          c, s, _ = fsf.fresnel(1.0)
           assert c == fsf.fresnel_c(1.0)
           assert s == fsf.fresnel_s(1.0)
           print("All Python binding smoke tests passed.")
