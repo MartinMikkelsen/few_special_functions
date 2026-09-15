@@ -1,6 +1,6 @@
 mod helpers;
 
-use few_special_functions::marcum_q::{dq_db, marcum_q};
+use few_special_functions::marcum_q::{dq_db, dq_db_order_one, marcum_q, marcum_q_order_one};
 use helpers::check;
 
 // --- Spot checks from published tables ---
@@ -171,6 +171,23 @@ fn invalid_a() {
 #[should_panic]
 fn invalid_b() {
     marcum_q(1.0, 1.0, -1.0);
+}
+
+#[test]
+fn order_one_convenience_functions_match_general_api() {
+    assert_eq!(marcum_q_order_one(1.2, 1.6), marcum_q(1.0, 1.2, 1.6));
+    assert_eq!(dq_db_order_one(1.2, 1.6), dq_db(1, 1.2, 1.6));
+}
+
+#[test]
+fn large_order_matches_centered_poisson_gamma_reference() {
+    check("Q(150,10,10)", marcum_q(150.0, 10.0, 10.0), 1.0, 2e-14);
+    check(
+        "Q(150,5,20)",
+        marcum_q(150.0, 5.0, 20.0),
+        0.0037985009089966685,
+        2e-12,
+    );
 }
 
 // --- Identities that need no reference table ---

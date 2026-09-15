@@ -1,8 +1,8 @@
 [package]
 name = "few_special_functions"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
-description = "A few special mathematical functions"
+description = "Special functions matching the FewSpecialFunctions.jl API"
 keywords = ["mathematics", "special-functions", "numerics", "functions"]   # max 5
 license = "MIT"
 
@@ -18,7 +18,7 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 libm = "0.2"
 num-complex = "0.4"
-pyo3 = { version = "0.28", optional = true }
+pyo3 = { version = "0.28", optional = true, features = ["num-complex"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

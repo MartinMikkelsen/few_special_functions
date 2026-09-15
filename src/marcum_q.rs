@@ -146,10 +146,6 @@ fn half_zeta2(x: f64, y: f64) -> f64 {
     }
 }
 
-fn zeta(x: f64, y: f64) -> f64 {
-    (2.0 * half_zeta2(x, y)).sqrt().copysign(x + 1.0 - y)
-}
-
 fn theta_over_sin(theta: f64) -> f64 {
     if theta < 1e-4 {
         1.0 + theta * theta / 6.0
@@ -288,32 +284,36 @@ fn marcum_q_recurrence(m: f64, x: f64, y: f64, xi: f64) -> f64 {
     q0
 }
 
-/// Asymptotic expansion for large M (section 4.2).
+/// Centered Poisson-gamma mixture for large M.
 fn marcum_q_large_m(m: f64, x: f64, y: f64) -> f64 {
-    let zv = zeta(x, y);
-    let ehalf = (-m * half_zeta2(x, y)).exp();
-    let max_k = 100;
-    let mut psi = vec![0.0_f64; max_k];
-    psi[0] = (PI / (2.0 * m)).sqrt() * erfc_real(-zv * (m / 2.0).sqrt());
-    psi[1] = ehalf / m;
+    let mode = x.floor() as usize;
+    let mut sum = inc_gamma_q(m + mode as f64, y);
+    let mut weights = 1.0;
 
-    let mut s = 0.0_f64;
-    let mut k = 1_usize;
-    while k < max_k {
-        let bk: f64 = (1..=k).map(|j| psi[j - 1] / m.powi((k - j) as i32)).sum();
-        s += bk;
-        if bk.abs() <= f64::EPSILON * s.abs() {
+    let mut weight = 1.0;
+    for n in (1..=mode).rev() {
+        weight *= n as f64 / x;
+        sum += weight * inc_gamma_q(m + (n - 1) as f64, y);
+        weights += weight;
+        let ratio = (n - 1) as f64 / x;
+        if weight * ratio <= f64::EPSILON * weights * (1.0 - ratio) {
             break;
         }
-        k += 1;
-        if k >= max_k {
-            break;
-        }
-        psi[k] = (k as f64 - 1.0) / m * psi[k - 1] + (-zv).powi(k as i32 - 1) / m * ehalf;
     }
 
-    let result = erfc_real(-zv * (m / 2.0).sqrt()) / 2.0 - (m / (2.0 * PI)).sqrt() * s;
-    result.clamp(0.0, 1.0)
+    weight = 1.0;
+    let mut n = mode;
+    loop {
+        n += 1;
+        weight *= x / n as f64;
+        sum += weight * inc_gamma_q(m + n as f64, y);
+        weights += weight;
+        let ratio = x / (n + 1) as f64;
+        if weight * ratio <= f64::EPSILON * weights * (1.0 - ratio) {
+            break;
+        }
+    }
+    sum / weights
 }
 
 // 4-point Gauss-Legendre nodes/weights on [−1,1] (Abramowitz & Stegun table 25.4).
@@ -429,6 +429,11 @@ pub fn marcum_q(mu: f64, a: f64, b: f64) -> f64 {
     marcum_q_modified(mu, a * a / 2.0, b * b / 2.0)
 }
 
+/// Standard Marcum Q-function of order one.
+pub fn marcum_q_order_one(a: f64, b: f64) -> f64 {
+    marcum_q(1.0, a, b)
+}
+
 /// Derivative ∂Q_M(a,b)/∂b of the Marcum Q-function (integer order M).
 ///
 /// ```text
@@ -458,6 +463,11 @@ pub fn dq_db(m: u32, a: f64, b: f64) -> f64 {
     let log_coeff = m as f64 * b.ln() - (m as f64 - 1.0) * a.ln();
     let scaled = bessel_i_scaled(n, ab);
     -(log_coeff.exp() * (-(a - b).powi(2) / 2.0).exp() * scaled)
+}
+
+/// Derivative with respect to `b` of the order-one Marcum Q-function.
+pub fn dq_db_order_one(a: f64, b: f64) -> f64 {
+    dq_db(1, a, b)
 }
 
 #[cfg(test)]

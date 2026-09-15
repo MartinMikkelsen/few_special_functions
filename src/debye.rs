@@ -1,23 +1,6 @@
-/// Regularized lower incomplete gamma P(a, x) = γ(a,x) / Γ(a).
-///
-/// Uses a convergent series for x < a+1 and the Lentz continued fraction
-/// for Q(a,x) = 1 - P(a,x) when x ≥ a+1.
-pub(crate) fn inc_gamma_p(a: f64, x: f64) -> f64 {
-    debug_assert!(a > 0.0 && x >= 0.0);
-    if x == 0.0 {
-        return 0.0;
-    }
-    if x < a + 1.0 {
-        inc_gamma_series(a, x)
-    } else {
-        1.0 - inc_gamma_cf(a, x)
-    }
-}
-
 /// Regularized upper incomplete gamma Q(a, x) = Γ(a,x) / Γ(a).
 ///
-/// Returns the continued fraction directly rather than `1 - inc_gamma_p`, which
-/// would round to zero as soon as Q(a,x) drops below the machine epsilon.
+/// Uses a convergent series for small `x` and a continued fraction in the tail.
 pub(crate) fn inc_gamma_q(a: f64, x: f64) -> f64 {
     debug_assert!(a > 0.0 && x >= 0.0);
     if x == 0.0 {
@@ -86,12 +69,12 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
 /// Defined as
 ///
 /// ```text
-/// D_n(β, x) = (n / xⁿ) ∫₀ˣ tⁿ / (eᵝᵗ − 1) dt
+/// D_n(β, x) = (n / xⁿ) ∫₀ˣ tⁿ / (eᵗ − 1)^β dt
 /// ```
 ///
-/// normalized so that D_n(β, 0) = 1. The standard Debye function used in
-/// solid-state physics is the special case β = 1; the parameter β allows
-/// generalization to Bose-Einstein integrals with other exponents.
+/// The standard Debye function used in solid-state physics is the special case
+/// β = 1. At zero the limiting value is zero for β < 1, one for β = 1,
+/// and positive infinity for β > 1.
 ///
 /// Uses the series expansion from doi:10.1007/s10765-007-0256-1.
 ///
@@ -110,7 +93,12 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
 /// assert!(debye_function(1.0, 1.0, 1.0) < 1.0);
 /// ```
 pub fn debye_function(n: f64, beta: f64, x: f64) -> f64 {
-    debye_function_tol(n, beta, x, 1e-15, 2000)
+    debye_function_tol(n, beta, x, 1e-35, 2000)
+}
+
+/// Convenience form of [`debye_function`] with order `n = 1`.
+pub fn debye_function_order_one(beta: f64, x: f64) -> f64 {
+    debye_function(1.0, beta, x)
 }
 
 /// Like [`debye_function`] but with explicit convergence tolerance `tol` and
@@ -131,36 +119,71 @@ pub fn debye_function(n: f64, beta: f64, x: f64) -> f64 {
 /// assert!((v1 - v2).abs() < 1e-5);
 /// ```
 pub fn debye_function_tol(n: f64, beta: f64, x: f64, tol: f64, max_terms: usize) -> f64 {
-    assert!(n > 0.0, "n must be positive, got {n}");
-    assert!(beta > 0.0, "beta must be positive, got {beta}");
+    assert!(
+        n.is_finite() && n > 0.0,
+        "n must be positive and finite, got {n}"
+    );
+    assert!(
+        beta.is_finite() && beta > 0.0 && beta < n + 1.0,
+        "beta must satisfy 0 < beta < n + 1, got {beta}"
+    );
     assert!(x >= 0.0, "x must be non-negative, got {x}");
+    assert!(
+        tol.is_finite() && tol > 0.0,
+        "tol must be positive and finite"
+    );
+    assert!(max_terms > 0, "max_terms must be positive");
 
     if x == 0.0 {
+        return if beta < 1.0 {
+            0.0
+        } else if beta == 1.0 {
+            1.0
+        } else {
+            f64::INFINITY
+        };
+    }
+    if x.is_infinite() {
+        return 0.0;
+    }
+    if beta == 1.0 && n < f64::EPSILON.sqrt() {
         return 1.0;
     }
 
-    let a = n + 1.0;
-    let gamma_n1 = libm::tgamma(a); // Γ(n+1)
-
-    let mut sum = 0.0;
-    let mut c = 1.0_f64; // c_i = (β)_i / i! (Pochhammer / factorial)
-
-    for i in 0..=max_terms {
-        let psi = beta + i as f64;
-        let p = inc_gamma_p(a, psi * x);
-        let gamma_lower = p * gamma_n1; // γ(n+1, ψx)
-
-        let term = c * gamma_lower / psi.powf(a);
-        sum += term;
-
-        if term.abs() < tol * sum.abs() {
-            return n * sum / x.powf(n);
+    let q = n + 1.0 - beta;
+    let m = q.min(1.0);
+    let scale = x.min((n / beta).max(1.0));
+    let upper = (1.0 / (1.0 + scale / x)).powf(m);
+    let integrand = |v: f64| {
+        if v == 0.0 {
+            return if q == m { 1.0 } else { 0.0 };
         }
+        let s = v.powf(1.0 / m);
+        let ratio = s / (1.0 - s);
+        let t = scale * ratio;
+        if t.is_infinite() {
+            return 0.0;
+        }
+        let log_bose = if t == 0.0 {
+            0.0
+        } else if t <= 1.0 {
+            (t / t.exp_m1()).ln()
+        } else {
+            t.ln() - t - (-(-t).exp_m1()).ln()
+        };
+        let log_power = if q == m { 0.0 } else { (q - m) * ratio.ln() };
+        (log_power - (m + 1.0) * (-s).ln_1p() + beta * log_bose).exp()
+    };
+    let relative_tolerance = tol.max(8.0 * f64::EPSILON);
+    let integral = crate::numerics::integrate(integrand, 0.0, upper, relative_tolerance, max_terms)
+        .unwrap_or_else(|message| panic!("Debye quadrature failed: {message}"));
 
-        c *= psi / (i as f64 + 1.0);
+    let result = (n / m) * integral * scale.powf(1.0 - beta) * (scale / x).powf(n);
+    if result.is_finite() && result > 0.0 {
+        return result;
     }
 
-    n * sum / x.powf(n)
+    ((n / m).ln() + (1.0 - beta) * scale.ln() + n * (scale.ln() - x.ln()) + integral.ln()).exp()
 }
 
 #[cfg(test)]
@@ -170,15 +193,7 @@ mod tests {
     #[test]
     fn at_zero() {
         assert_eq!(debye_function(1.0, 1.0, 0.0), 1.0);
-        assert_eq!(debye_function(3.0, 2.0, 0.0), 1.0);
-    }
-
-    #[test]
-    fn inc_gamma_p_known() {
-        // P(1, 1) = 1 - e⁻¹ ≈ 0.6321
-        assert!((inc_gamma_p(1.0, 1.0) - (1.0 - (-1.0_f64).exp())).abs() < 1e-12);
-        // P(2, 1) = 1 - 2e⁻¹ ≈ 0.2642
-        assert!((inc_gamma_p(2.0, 1.0) - (1.0 - 2.0 * (-1.0_f64).exp())).abs() < 1e-12);
+        assert_eq!(debye_function(3.0, 2.0, 0.0), f64::INFINITY);
     }
 
     #[test]

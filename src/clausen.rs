@@ -156,7 +156,7 @@ fn expint_e1(z: Complex<f64>) -> Complex<f64> {
 
 /// Complex cosine integral Ci(z) = -½ (E₁(iz) + E₁(-iz)), with branch
 /// correction +πi when Re(z) < 0.
-fn ci_complex(z: Complex<f64>) -> Complex<f64> {
+pub fn ci_complex(z: Complex<f64>) -> Complex<f64> {
     if z == Complex::new(0.0, 0.0) {
         return Complex::new(f64::NAN, f64::NAN);
     }
@@ -179,14 +179,14 @@ fn ci_complex(z: Complex<f64>) -> Complex<f64> {
     v
 }
 
-/// Euler-Maclaurin tail primitive F_n(z, θ) — returns Re(F_n(z, θ)).
-fn f_clausen(n: usize, z: Complex<f64>, theta: f64) -> f64 {
+/// Euler-Maclaurin tail primitive F_n(z, θ).
+pub fn f_clausen(n: usize, z: Complex<f64>, theta: f64) -> Complex<f64> {
     let tz = z * theta; // θz ∈ ℂ
     let ci = ci_complex(tz);
     let s = tz.sin();
     let c = tz.cos();
 
-    (match n {
+    match n {
         1 => ci,
         2 => (tz * ci - s) / z,
         3 => {
@@ -212,11 +212,12 @@ fn f_clausen(n: usize, z: Complex<f64>, theta: f64) -> f64 {
                     - (tz * tz * tz * tz - tz * tz * 2.0 + Complex::new(24.0, 0.0)) * s)
         }
         _ => panic!("n must be 1..=6"),
-    })
-    .re
+    }
 }
 
-fn sum_term(n: usize, k: usize, theta: f64) -> f64 {
+/// Clausen series summand `sin(kθ)/k^n` for even `n`, and
+/// `cos(kθ)/k^n` for odd `n`.
+pub fn f_n(n: usize, k: usize, theta: f64) -> f64 {
     let kt = k as f64 * theta;
     if n.is_multiple_of(2) {
         kt.sin() / (k as f64).powi(n as i32)
@@ -225,8 +226,9 @@ fn sum_term(n: usize, k: usize, theta: f64) -> f64 {
     }
 }
 
-fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64]) -> f64 {
+fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64], m: usize) -> f64 {
     assert!((1..=6).contains(&n), "n must be 1..=6, got {n}");
+    assert!(m > 0, "m must be positive, got {m}");
 
     if theta == 0.0 {
         return match n {
@@ -264,16 +266,14 @@ fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64]) -> f64 {
         return sign * (-(2.0 * (phi / 2.0).sin()).abs().ln());
     }
 
-    let m = 20_usize;
-
-    let s1: f64 = (1..m).map(|k| sum_term(n, k, phi)).sum();
+    let s1: f64 = (1..m).map(|k| f_n(n, k, phi)).sum();
 
     let s2: f64 = xi
         .iter()
         .zip(weights.iter())
         .map(|(&xi_v, &w)| {
             let z = Complex::new(m as f64 - 0.5, 0.5 * xi_v.sqrt());
-            w * f_clausen(n, z, phi)
+            w * f_clausen(n, z, phi).re
         })
         .sum();
 
@@ -311,7 +311,7 @@ fn clausen_impl(n: usize, theta: f64, xi: &[f64], weights: &[f64]) -> f64 {
 /// assert!((g - 0.9159655941).abs() < 1e-9);
 /// ```
 pub fn clausen(n: usize, theta: f64) -> f64 {
-    clausen_impl(n, theta, &XI_10, &A_10)
+    clausen_impl(n, theta, &XI_10, &A_10, 20)
 }
 
 /// Clausen function Cl_n(θ) using N = 20 quadrature nodes for extended precision.
@@ -329,7 +329,18 @@ pub fn clausen(n: usize, theta: f64) -> f64 {
 /// assert!((v - 1.01494).abs() < 1e-5);
 /// ```
 pub fn clausen_n20(n: usize, theta: f64) -> f64 {
-    clausen_impl(n, theta, &XI_20, &A_20)
+    clausen_impl(n, theta, &XI_20, &A_20, 20)
+}
+
+/// Clausen function with Julia-compatible quadrature and direct-sum controls.
+///
+/// `nodes` must be 10 or 20 and `m` must be positive.
+pub fn clausen_with_options(n: usize, theta: f64, nodes: usize, m: usize) -> f64 {
+    match nodes {
+        10 => clausen_impl(n, theta, &XI_10, &A_10, m),
+        20 => clausen_impl(n, theta, &XI_20, &A_20, m),
+        _ => panic!("nodes must be 10 or 20, got {nodes}"),
+    }
 }
 
 // Unit tests for private internals — public API is tested in tests/clausen.rs

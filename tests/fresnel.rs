@@ -1,4 +1,10 @@
-use few_special_functions::fresnel::{fresnel, fresnel_c, fresnel_s};
+#![allow(clippy::excessive_precision)]
+
+use few_special_functions::fresnel::{
+    fresnel, fresnel_c, fresnel_c_complex, fresnel_complex, fresnel_e, fresnel_e_complex,
+    fresnel_s, fresnel_s_complex,
+};
+use num_complex::Complex64;
 use std::f64::consts::PI;
 
 fn check(label: &str, got: f64, expected: f64, atol: f64) {
@@ -69,6 +75,33 @@ fn wrapper_consistency() {
         assert!((e.re - c).abs() < 1e-15);
         assert!((e.im - s).abs() < 1e-15);
     }
+}
+
+#[test]
+fn complex_values_match_julia() {
+    let z = Complex64::new(1.0, 1.0);
+    let (c, s, e) = fresnel_complex(z);
+    let c_ref = Complex64::new(2.5557937781024376, 2.5557937781024376);
+    let s_ref = Complex64::new(-2.0618882191948393, 2.0618882191948393);
+    assert!((c - c_ref).norm() < 8e-14);
+    assert!((s - s_ref).norm() < 8e-14);
+    assert!((e - Complex64::new(0.49390555890759856, 0.49390555890759856)).norm() < 3e-14);
+    assert_eq!(fresnel_c_complex(z), c);
+    assert_eq!(fresnel_s_complex(z), s);
+    assert_eq!(fresnel_e_complex(z), e);
+    assert_eq!(fresnel_e(1.0), fresnel(1.0).2);
+}
+
+#[test]
+fn complex_cancellation_and_sector_values_match_julia() {
+    for z in [Complex64::new(4.0, 4.0), Complex64::new(8.0, 8.0)] {
+        assert!((fresnel_e_complex(z) - Complex64::new(0.5, 0.5)).norm() < 2e-14);
+    }
+    let z = Complex64::new(1.0, 12.0);
+    let c_ref = Complex64::new(2.521551371184569e13, -3.107276588837978e14);
+    let s_ref = Complex64::new(3.107276588837983e14, 2.521551371184519e13);
+    assert!((fresnel_c_complex(z) - c_ref).norm() / c_ref.norm() < 2e-13);
+    assert!((fresnel_s_complex(z) - s_ref).norm() / s_ref.norm() < 2e-13);
 }
 
 // --- Full data file: 499 points, x, S, C (rtol = 1e-2 as in Julia tests) ---

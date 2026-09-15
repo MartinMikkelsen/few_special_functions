@@ -1,5 +1,5 @@
 #![allow(clippy::excessive_precision)]
-use few_special_functions::debye::debye_function;
+use few_special_functions::debye::{debye_function, debye_function_order_one};
 
 fn check(n: f64, beta: f64, x: f64, got: f64, expected: f64, atol: f64) {
     assert!(
@@ -90,7 +90,47 @@ fn spot_checks() {
 #[test]
 fn boundary() {
     assert_eq!(debye_function(1.0, 1.0, 0.0), 1.0);
-    assert_eq!(debye_function(3.0, 2.5, 0.0), 1.0);
+    assert_eq!(debye_function(2.0, 0.5, 0.0), 0.0);
+    assert_eq!(debye_function(2.0, 2.0, 0.0), f64::INFINITY);
+    assert_eq!(debye_function(2.0, 1.0, f64::INFINITY), 0.0);
+}
+
+#[test]
+fn generalized_values_match_julia() {
+    check(
+        2.0,
+        2.0,
+        0.01,
+        debye_function(2.0, 2.0, 0.01),
+        199.0027736127824,
+        4e-12,
+    );
+    check(
+        1.0,
+        1.5,
+        2.0,
+        debye_function(1.0, 1.5, 2.0),
+        0.9142658055898747,
+        3e-14,
+    );
+    check(
+        3.0,
+        0.5,
+        4.0,
+        debye_function(3.0, 0.5, 4.0),
+        0.6701283137949281,
+        3e-14,
+    );
+    assert_eq!(
+        debye_function_order_one(1.5, 2.0),
+        debye_function(1.0, 1.5, 2.0)
+    );
+}
+
+#[test]
+#[should_panic]
+fn beta_must_be_less_than_n_plus_one() {
+    debye_function(2.0, 3.0, 1.0);
 }
 
 #[test]

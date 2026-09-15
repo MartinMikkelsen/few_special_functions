@@ -1,5 +1,8 @@
 #![allow(clippy::excessive_precision)]
-use few_special_functions::clausen::{clausen, clausen_n20};
+use few_special_functions::clausen::{
+    ci_complex, clausen, clausen_n20, clausen_with_options, f_clausen, f_n,
+};
+use num_complex::Complex;
 use std::f64::consts::PI;
 
 fn parse_data(s: &str) -> Vec<(f64, f64)> {
@@ -171,4 +174,27 @@ fn n10_and_n20_agree() {
             );
         }
     }
+}
+
+#[test]
+fn julia_public_helpers_are_available() {
+    let ci = ci_complex(Complex::new(1.0, 0.0));
+    assert!((ci.re - 0.3374039229009681).abs() < 1e-10);
+    assert!(ci.im.abs() < 1e-14);
+
+    assert!((f_n(2, 2, 0.7) - 1.4_f64.sin() / 4.0).abs() < 1e-15);
+    assert!((f_n(3, 2, 0.7) - 1.4_f64.cos() / 8.0).abs() < 1e-15);
+
+    let z = Complex::new(2.0, 0.5);
+    assert!((f_clausen(1, z, 0.7) - ci_complex(z * 0.7)).norm() < 1e-14);
+}
+
+#[test]
+fn julia_clausen_options_are_available() {
+    let theta = std::f64::consts::PI / 3.0;
+    assert_eq!(clausen_with_options(2, theta, 10, 20), clausen(2, theta));
+    assert_eq!(
+        clausen_with_options(2, theta, 20, 20),
+        clausen_n20(2, theta)
+    );
 }

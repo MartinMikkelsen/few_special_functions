@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "few-special-functions"
 requires-python = ">=3.8"
-description = "Special mathematical functions: Fresnel, Clausen, Fermi-Dirac, Debye, Marcum Q"
+description = "Special functions matching the FewSpecialFunctions.jl API"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Rust",
