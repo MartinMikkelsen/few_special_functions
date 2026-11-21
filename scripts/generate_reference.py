@@ -51,9 +51,10 @@ def fmt_float(value: float) -> str:
     return repr(float(value))
 
 
-def agree(a, b, what: str, rel: float = mpf(10) ** (-(DPS - 15))) -> None:
+def agree(a, b, what: str, rel: float = mpf(10) ** (-(DPS - 15)),
+          absolute: float = mpf(10) ** (-(DPS - 5))) -> None:
     scale = max(abs(a), abs(b))
-    if abs(a - b) > rel * scale and abs(a - b) > mpf(10) ** (-(DPS - 5)):
+    if abs(a - b) > rel * scale and abs(a - b) > absolute:
         raise RuntimeError(f"cross-check failed for {what}: {a} vs {b}")
 
 
@@ -301,7 +302,8 @@ def pcf_uv(a, x):
     told to accept a zero result. Unlike mpmath's pcfv, this form has no removable singularity at
     a = -n - 1/2, so it also covers the points where pcfv fails to converge.
     """
-    with mp.workdps(2 * DPS):
+    # The sums cancel by up to exp(x^2/2) where a solution is recessive.
+    with mp.workdps(2 * DPS + int(mpf(x) ** 2 / 4)):
         a, x = mpf(a), mpf(x)
         g = mpmath.exp(-x**2 / 4)
         u1 = g * mpmath.hyp1f1(a / 2 + mpf(1) / 4, mpf(1) / 2, x**2 / 2, zeroprec=ZEROPREC)
@@ -314,8 +316,8 @@ def pcf_uv(a, x):
 
 
 def parabolic_cylinder_tables() -> None:
-    avals = [-5.0, -2.5, -1.0, -0.5, 0.0, 0.5, 1.0, 2.5, 5.0, 10.0]
-    xvals = [-5.0, -2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
+    avals = [-10.0, -5.0, -3.3, -2.5, -1.0, -0.5, 0.0, 0.3, 0.5, 1.0, 1.7, 2.5, 5.0, 7.5, 10.0, 20.0]
+    xvals = [-20.0, -10.0, -5.0, -2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 5.0, 10.0]
     rows = []
     for a in avals:
         for x in xvals:
@@ -326,6 +328,13 @@ def parabolic_cylinder_tables() -> None:
                 agree(v, mpmath.pcfv(aa, xx, zeroprec=ZEROPREC), f"V({a}, {x})", rel=mpf(10) ** -25)
             except ValueError:
                 pass  # pcfv does not converge here; the series form stands alone
+            if x < 0:
+                # DLMF 12.2.15 and 12.2.16 from the values at -x.
+                up, vp = pcf_uv(aa, -xx)
+                agree(u, -mpmath.sinpi(aa) * up + mpmath.pi * mpmath.rgamma(aa + mpf(1) / 2) * vp,
+                      f"U({a}, {x}) reflection", rel=mpf(10) ** -25, absolute=0)
+                agree(v, mpmath.cospi(aa) * mpmath.rgamma(mpf(1) / 2 - aa) * up + mpmath.sinpi(aa) * vp,
+                      f"V({a}, {x}) reflection", rel=mpf(10) ** -25, absolute=0)
             du = mpmath.diff(lambda t: pcf_uv(aa, t)[0], xx)
             dv = mpmath.diff(lambda t: pcf_uv(aa, t)[1], xx)
             rows.append([fmt_float(a), fmt_float(x), fmt(u), fmt(du), fmt(v), fmt(dv)])

@@ -168,21 +168,14 @@ fn parabolic_cylinder_functions() {
     let mut report = Report::default();
     let table = table!("parabolic_cylinder_uv");
     let inputs = &["a", "x"];
-    let cases: [(&str, &str, f64, Real2); 2] = [
-        ("U(a, x)", "u", 5e-12, pcf::u),
-        ("dU/dx", "du", 5e-12, pcf::du),
+    let cases: [(&str, &str, Real2); 4] = [
+        ("U(a, x)", "u", pcf::u),
+        ("dU/dx", "du", pcf::du),
+        ("V(a, x)", "v", pcf::v),
+        ("dV/dx", "dv", pcf::dv),
     ];
-    for (quantity, expected, tolerance, function) in cases {
-        Check::new(&table, quantity, inputs, expected, tolerance)
-            .run(&mut report, |row| function(row.get("a"), row.get("x")));
-    }
-    let cases: [(&str, &str, f64, Real2); 2] = [
-        ("V(a, x)", "v", 5e-12, pcf::v),
-        ("dV/dx", "dv", 5e-12, pcf::dv),
-    ];
-    for (quantity, expected, tolerance, function) in cases {
-        Check::new(&table, quantity, inputs, expected, tolerance)
-            .domain("x >= 0 or a < 0", pcf_v_accurate)
+    for (quantity, expected, function) in cases {
+        Check::new(&table, quantity, inputs, expected, 5e-13)
             .run(&mut report, |row| function(row.get("a"), row.get("x")));
     }
 
@@ -206,25 +199,6 @@ fn parabolic_cylinder_functions() {
     Check::new(&table, "dD_nu/dx", inputs, "dd", 5e-13).run(&mut report, |row| {
         pcf::d_parabolic_cylinder_d(row.get("nu"), row.get("x"))
     });
-    report.finish();
-}
-
-/// Everywhere except negative arguments with nonnegative order, `x < 0`, `a >= 0`.
-fn pcf_v_accurate(row: &Row) -> bool {
-    row.get("x") >= 0.0 || row.get("a") < 0.0
-}
-
-#[test]
-#[ignore = "known accuracy gap: V(a, x) and dV/dx for x < 0, a >= 0 have relative error up to 7.5e-1 (a = 10, x = -5)"]
-fn parabolic_cylinder_v_negative_argument() {
-    let table = table!("parabolic_cylinder_uv");
-    let mut report = Report::default();
-    let cases: [(&str, &str, Real2); 2] = [("V(a, x)", "v", pcf::v), ("dV/dx", "dv", pcf::dv)];
-    for (quantity, expected, function) in cases {
-        Check::new(&table, quantity, &["a", "x"], expected, GAP_TARGET)
-            .domain("x < 0 and a >= 0", |row| !pcf_v_accurate(row))
-            .run(&mut report, |row| function(row.get("a"), row.get("x")));
-    }
     report.finish();
 }
 

@@ -118,10 +118,9 @@ function, its error on the same points is shown for comparison.
 | `fresnel_c_complex`, `fresnel_s_complex` | \|z\| ≤ 4.5 | 5.5e-12 | — |
 | `marcum_q` | μ ∈ [0.5, 25], a, b ∈ [0, 30] | 2.9e-14 | 5.5e-14 |
 | `dq_db` | M ∈ {1, 2, 3, 5}, a ∈ [0.1, 10], b ∈ [0.1, 20] | 3.3e-14 | — |
-| `parabolic_cylinder::u`, `du` | a ∈ [−5, 10], x ∈ [−5, 10] | 1.6e-12 | — |
-| `parabolic_cylinder::v`, `dv` | x ≥ 0 or a < 0 | 2.3e-12 | — |
+| `parabolic_cylinder::u`, `du`, `v`, `dv` | a ∈ [−10, 20], x ∈ [−20, 10] | 1.8e-13 | — |
 | `parabolic_cylinder::w`, `dw` | a ∈ [−3, 3], x ∈ [−4, 4] | 4.6e-11 | — |
-| `parabolic_cylinder_d`, `d_parabolic_cylinder_d` | ν ∈ [−3.5, 5], x ∈ [−5, 10] | 1.2e-13 | 5.8e-12 |
+| `parabolic_cylinder_d`, `d_parabolic_cylinder_d` | ν ∈ [−3.5, 5], x ∈ [−5, 10] | 7.6e-15 | 5.8e-12 |
 | `whittaker_m`, `d_whittaker_m` | κ ∈ [−2, 3], μ ∈ [0.25, 2.3], z ∈ [0.01, 30] | 3.8e-15 | — |
 | `whittaker_w`, `d_whittaker_w` | same, except the regions below | 1.9e-11 | — |
 | `whittaker_m_complex`, `whittaker_w_complex` | 6 points | 4.7e-14 | — |
@@ -139,5 +138,4 @@ that assert a relative error of 1e-12; run them with
 | Function | Region | Max. relative error |
 |---|---|---|
 | `voigt` | \|x\| ≥ 5 and y ≤ 0.01 | 1.5e-6 (SciPy: 7.0e-15) |
-| `parabolic_cylinder::v`, `dv` | x < 0 and a ≥ 0 | 7.5e-1 (a = 10, x = −5) |
 | `whittaker_w`, `d_whittaker_w` | 1/2 + μ − κ a non-positive integer, or κ < 0 with z ≥ 30 | 3.4e-7 |
