@@ -1,225 +1,125 @@
-// Antia (1993) rational function approximations for F_{-1/2}
-const A_NEG_HALF_LOW: [f64; 8] = [
-    1.71446374704454e7,
-    3.88148302324068e7,
-    3.16743385304962e7,
-    1.14587609192151e7,
-    1.83696370756153e6,
-    1.14980998186874e5,
-    1.98276889924768e3,
-    1.0,
-];
-const B_NEG_HALF_LOW: [f64; 8] = [
-    9.67282587452899e6,
-    2.87386436731785e7,
-    3.26070130734158e7,
-    1.77657027846367e7,
-    4.81648022267831e6,
-    6.13709569333207e5,
-    3.13595854332114e4,
-    4.35061725080755e2,
-];
-const A_NEG_HALF_HIGH: [f64; 12] = [
-    -4.46620341924942e-15,
-    -1.58654991146236e-12,
-    -4.44467627042232e-10,
-    -6.84738791621745e-8,
-    -6.64932238528105e-6,
-    -3.69976170193942e-4,
-    -1.12295393687006e-2,
-    -1.60926102124442e-1,
-    -8.52408612877447e-1,
-    -7.45519953763928e-1,
-    2.98435207466372e0,
-    1.0,
-];
-const B_NEG_HALF_HIGH: [f64; 12] = [
-    -2.23310170962369e-15,
-    -7.94193282071464e-13,
-    -2.22564376956228e-10,
-    -3.43299431079845e-8,
-    -3.33919612678907e-6,
-    -1.86432212187088e-4,
-    -5.69764436880529e-3,
-    -8.34904593067194e-2,
-    -4.7877084400944e-1,
-    -4.99759250374148e-1,
-    1.86795964993052e0,
-    4.16485970495288e-1,
-];
+use std::f64::consts::FRAC_PI_2;
 
-// Antia (1993) rational function approximations for F_{1/2}
-const A_HALF_LOW: [f64; 8] = [
-    5.75834152995465e6,
-    1.30964880355883e7,
-    1.07608632249013e7,
-    3.93536421893014e6,
-    6.4249323371564e5,
-    4.16031909245777e4,
-    7.77238678539648e2,
-    1.0,
-];
-const B_HALF_LOW: [f64; 8] = [
-    6.49759261942269e6,
-    1.70750501625775e7,
-    1.6928813485616e7,
-    7.95192647756086e6,
-    1.83167424554505e6,
-    1.95155948326832e5,
-    8.17922106644547e3,
-    9.02129136642157e1,
-];
-const A_HALF_HIGH: [f64; 11] = [
-    4.85378381173415e-14,
-    1.64429113030738e-11,
-    3.76794942277806e-9,
-    4.69233883900644e-7,
-    3.40679845803144e-5,
-    1.32212995937796e-3,
-    2.60768398973913e-2,
-    2.48653216266227e-1,
-    1.08037861921488e0,
-    1.91247528779676e0,
-    1.0,
-];
-const B_HALF_HIGH: [f64; 12] = [
-    7.28067571760518e-14,
-    2.45745452167585e-11,
-    5.62152894375277e-9,
-    6.96888634549649e-7,
-    5.02360015186394e-5,
-    1.92040136756592e-3,
-    3.66887808002874e-2,
-    3.24095226486468e-1,
-    1.16434871200131e0,
-    1.34981244060549e0,
-    2.0131183697593e-1,
-    -2.14562434782759e-2, // Antia 1993 Table; was -2.214562434782759e-1 (F_{1/2} ~9e-4 error above x=2)
-];
-
-// Antia (1993) rational function approximations for F_{3/2}
-const A_THREE_HALF_LOW: [f64; 7] = [
-    4.32326386604283e4,
-    8.55472308218786e4,
-    5.95275291210962e4,
-    1.77294861572005e4,
-    2.2187660779646e3,
-    9.90562948053193e1,
-    1.0,
-];
-const B_THREE_HALF_LOW: [f64; 8] = [
-    3.25218725353467e4,
-    7.01022511904373e4,
-    5.50859144223638e4,
-    1.959420745764e4,
-    3.20803912586318e3,
-    2.20853967067789e2,
-    5.05580641737527e0,
-    1.99507945223266e-2,
-];
-const A_THREE_HALF_HIGH: [f64; 10] = [
-    2.80452693148553e-13,
-    8.60096863656367e-11,
-    1.62974620742993e-8,
-    1.6359884375205e-6,
-    9.12915407846722e-5,
-    2.62988766922117e-3,
-    3.85682997219346e-2,
-    2.78383256609605e-1,
-    9.02250179334496e-1,
-    1.0,
-];
-const B_THREE_HALF_HIGH: [f64; 11] = [
-    7.01131732871184e-13,
-    2.10699282897576e-10,
-    3.94452010378723e-8, // Antia 1993 Table; was ...e-10 (F_{3/2} up to 47% error above x=2)
-    3.84703231868724e-6,
-    2.04569943213216e-4,
-    5.31999109566385e-3,
-    6.39899717779153e-2,
-    3.14236143831882e-1,
-    4.70252591891375e-1,
-    -2.15540156936373e-2,
-    2.34829436438087e-3,
-];
-
-// Antia (1993) rational function approximations for F_{5/2}
-const A_FIVE_HALF_LOW: [f64; 7] = [
-    6.61606300631656e4,
-    1.20132462801652e5,
-    7.67255995316812e4,
-    2.10427138842443e4,
-    2.44325236813275e3,
-    1.02589947781696e2,
-    1.0,
-];
-const B_FIVE_HALF_LOW: [f64; 8] = [
-    1.99078071053871e4,
-    3.79076097261066e4,
-    2.60117136841197e4,
-    7.97584657659364e3,
-    1.10886130159658e3,
-    6.35483623268093e1,
-    1.16951072617142e0,
-    3.31482978240026e-3,
-];
-const A_FIVE_HALF_HIGH: [f64; 11] = [
-    8.42667076131315e-12,
-    2.31618876821567e-9,
-    3.54323824923987e-7,
-    2.77981736000034e-5,
-    1.14008027400645e-3,
-    2.32779790773633e-2,
-    2.39564845938301e-1,
-    1.24415366126179e0,
-    3.18831203950106e0,
-    3.42040216997894e0,
-    1.0,
-];
-const B_FIVE_HALF_HIGH: [f64; 10] = [
-    2.94933476646033e-11,
-    7.68215783076936e-9,
-    1.12919616415947e-6,
-    8.09451165406274e-5,
-    2.81111224925648e-3,
-    3.99937801931919e-2,
-    2.27132567866839e-1,
-    5.3188604522268e-1,
-    3.70866321410385e-1,
-    2.27326643192516e-2,
-];
-
-/// Horner's method: evaluates c[0] + c[1]*x + c[2]*x² + ... + c[n]*xⁿ
-fn horner(x: f64, coeffs: &[f64]) -> f64 {
-    coeffs.iter().rev().fold(0.0, |acc, &c| acc * x + c)
-}
-
-fn rational_approx(
-    j: f64,
-    x: f64,
-    a_low: &[f64],
-    b_low: &[f64],
-    a_high: &[f64],
-    b_high: &[f64],
-) -> f64 {
-    if x < 2.0 {
-        let t = x.exp();
-        t * horner(t, a_low) / horner(t, b_low)
+/// F_j(x) for any order `j > -1`.
+///
+/// For `x <= -1` the series `F_j(x) = Γ(j+1) Σ_{k≥1} (−1)^{k+1} e^{kx} / k^{j+1}`
+/// converges geometrically. Above that the defining integral is evaluated by
+/// double-exponential quadrature: tanh-sinh on `[0, x]` and exp-sinh on
+/// `[x, ∞)` for `x > 0`, exp-sinh on `[0, ∞)` otherwise. The integrands are
+/// written in logarithmic form, so the `t^j` endpoint singularity and the
+/// exponential tail neither overflow nor underflow before they are weighted.
+fn general_order(j: f64, x: f64) -> f64 {
+    if x.is_nan() {
+        return f64::NAN;
+    }
+    if x == f64::INFINITY {
+        return f64::INFINITY;
+    }
+    if x <= -1.0 {
+        return libm::tgamma(j + 1.0) * alternating_series(j, x);
+    }
+    let order = j + 1.0;
+    if x > 0.0 {
+        // [0, x] with t = x σ(y), x − t = x σ(−y), y = π sinh s and σ the
+        // logistic function; t^j dt = x^{j+1} σ(y)^{j+1} σ(−y) π cosh(s) ds.
+        let inner = double_exponential(|s| {
+            let y = std::f64::consts::PI * s.sinh();
+            let log_sigma = -softplus(-y);
+            let log_complement = -softplus(y);
+            let distance = x * log_complement.exp();
+            std::f64::consts::PI * s.cosh() * (order * log_sigma + log_complement).exp()
+                / ((-distance).exp() + 1.0)
+        });
+        // [x, ∞) with t = x + w, w = exp(y), y = (π/2) sinh s.
+        let outer = double_exponential(|s| {
+            let y = FRAC_PI_2 * s.sinh();
+            let w = y.exp();
+            if !w.is_finite() {
+                return 0.0;
+            }
+            FRAC_PI_2 * s.cosh() * (y + j * (x + w).ln() - w - softplus(-w)).exp()
+        });
+        x.powf(order) * inner + outer
     } else {
-        let t = 1.0 / (x * x);
-        x.powf(j + 1.0) * horner(t, a_high) / horner(t, b_high)
+        // [0, ∞) with t = exp(y), y = (π/2) sinh s; t − x ≥ 0.
+        double_exponential(|s| {
+            let y = FRAC_PI_2 * s.sinh();
+            let excess = y.exp() - x;
+            if !excess.is_finite() {
+                return 0.0;
+            }
+            FRAC_PI_2 * s.cosh() * (order * y - excess - softplus(-excess)).exp()
+        })
     }
 }
 
-fn general_approx(j: f64, x: f64) -> f64 {
-    // Aymerich-Humet et al. (1983), eqs. (6)-(7)
-    let a = (1.0 + 15.0 / 4.0 * (j + 1.0) + (j + 1.0).powi(2) / 40.0).sqrt();
-    let b = 1.8 + 0.61 * j;
-    let c = 2.0 + (2.0 - 2.0_f64.sqrt()) * 2.0_f64.powf(-j);
-    let inner = ((x - b).abs().powf(c) + a.powf(c)).powf(1.0 / c);
-    ((j + 1.0) * 2.0_f64.powf(j + 1.0) / (b + x + inner).powf(j + 1.0)
-        + (-x).exp() / libm::tgamma(j + 1.0))
-    .recip()
+/// `Σ_{k≥1} (−1)^{k+1} e^{kx} / k^{j+1}`, for `x <= -1`.
+fn alternating_series(j: f64, x: f64) -> f64 {
+    let ratio = x.exp();
+    let mut power = ratio;
+    let mut sum = 0.0;
+    let mut k = 1.0_f64;
+    loop {
+        let term = power / k.powf(j + 1.0);
+        sum += if k % 2.0 == 1.0 { term } else { -term };
+        if term <= 0.25 * f64::EPSILON * sum.abs() {
+            return sum;
+        }
+        k += 1.0;
+        power *= ratio;
+    }
+}
+
+/// `ln(1 + e^z)` without overflow or loss of accuracy.
+fn softplus(z: f64) -> f64 {
+    if z > 0.0 {
+        z + (-z).exp().ln_1p()
+    } else {
+        z.exp().ln_1p()
+    }
+}
+
+/// `∫ f(s) ds` over the real line for an integrand that decays double
+/// exponentially, by the trapezoidal rule with step halving.
+///
+/// The error of the rule roughly squares with each halving, so once two levels
+/// agree to 1e-10 the finer one is accurate to rounding.
+fn double_exponential(f: impl Fn(f64) -> f64) -> f64 {
+    // Beyond |s| = 8 every integrand here is below the f64 range.
+    const S_MAX: f64 = 8.0;
+    const LEVELS: usize = 10;
+    // Adds f(offset + k·spacing) for k = 0, 1, 2, … in one direction until
+    // the terms no longer change `reference`.
+    let ray = |offset: f64, spacing: f64, reference: f64| {
+        let mut sum = 0.0;
+        let mut s = offset;
+        while s.abs() <= S_MAX {
+            let value = f(s);
+            sum += value;
+            if value.abs() <= 1e-2 * f64::EPSILON * (reference + sum).abs() && s != offset {
+                break;
+            }
+            s += spacing;
+        }
+        sum
+    };
+
+    let mut step = 0.5;
+    let centre = f(0.0);
+    let mut nodes = centre + ray(step, step, centre) + ray(-step, -step, centre);
+    let mut estimate = step * nodes;
+    for _ in 0..LEVELS {
+        // The new nodes are the odd multiples of step/2.
+        let half = 0.5 * step;
+        nodes += ray(half, step, nodes) + ray(-half, -step, nodes);
+        step = half;
+        let refined = step * nodes;
+        if (refined - estimate).abs() <= 1e-10 * refined.abs() {
+            return refined;
+        }
+        estimate = refined;
+    }
+    panic!("Fermi-Dirac quadrature did not converge")
 }
 
 /// Complete Fermi-Dirac integral F_j(x) = ∫₀^∞ tʲ / (exp(t-x) + 1) dt.
@@ -228,9 +128,14 @@ fn general_approx(j: f64, x: f64) -> f64 {
 /// semiconductors; the index `j` is typically a half-integer related to the
 /// dimensionality of the band structure.
 ///
-/// Uses Antia (1993) rational approximations for j = −1/2, 1/2, 3/2, 5/2
-/// (relative error < 10⁻¹²), the exact formula ln(1 + eˣ) for j = 0, and the
-/// Aymerich-Humet et al. (1983) general approximation for other j values.
+/// Uses the exact formula ln(1 + eˣ) for j = 0. Every other j uses the
+/// alternating series in eˣ for x ≤ −1 and double-exponential quadrature of
+/// the defining integral otherwise.
+///
+/// # Accuracy
+///
+/// Measured against mpmath for j ∈ [−0.5, 10] and x ∈ [−50, 10⁴] (see the
+/// crate README): relative error below 10⁻¹⁴.
 ///
 /// # Panics
 /// Panics if `j < -0.5`.
@@ -252,45 +157,16 @@ pub fn fermi_dirac_integral(j: f64, x: f64) -> f64 {
     assert!(j >= -0.5, "j must be >= -0.5, got {j}");
 
     if j == 0.0 {
-        (1.0 + x.exp()).ln()
-    } else if j == -0.5 {
-        rational_approx(
-            j,
-            x,
-            &A_NEG_HALF_LOW,
-            &B_NEG_HALF_LOW,
-            &A_NEG_HALF_HIGH,
-            &B_NEG_HALF_HIGH,
-        )
-    } else if j == 0.5 {
-        rational_approx(j, x, &A_HALF_LOW, &B_HALF_LOW, &A_HALF_HIGH, &B_HALF_HIGH)
-    } else if j == 1.5 {
-        rational_approx(
-            j,
-            x,
-            &A_THREE_HALF_LOW,
-            &B_THREE_HALF_LOW,
-            &A_THREE_HALF_HIGH,
-            &B_THREE_HALF_HIGH,
-        )
-    } else if j == 2.5 {
-        rational_approx(
-            j,
-            x,
-            &A_FIVE_HALF_LOW,
-            &B_FIVE_HALF_LOW,
-            &A_FIVE_HALF_HIGH,
-            &B_FIVE_HALF_HIGH,
-        )
+        softplus(x)
     } else {
-        general_approx(j, x)
+        general_order(j, x)
     }
 }
 
 /// Normalized Fermi-Dirac integral F̃_j(x) = F_j(x) / Γ(j+1).
 ///
-/// Dividing by Γ(j+1) removes the factorial growth, giving a function that
-/// approaches (eˣ)^{1/(j+1)} in the degenerate limit x → +∞. Useful when
+/// Dividing by Γ(j+1) gives a function that approaches eˣ as x → −∞ for
+/// every order, and x^{j+1}/Γ(j+2) in the degenerate limit x → +∞. Useful when
 /// comparing Fermi-Dirac statistics across different orders.
 ///
 /// # Examples

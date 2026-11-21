@@ -442,12 +442,20 @@ pub fn du(a: f64, x: f64) -> f64 {
 }
 
 /// Parabolic-cylinder function `V(a, x)`.
+///
+/// # Accuracy
+///
+/// Measured against mpmath (see the crate README), the relative error is below
+/// 3e-12 for `x >= 0` or `a < 0`. For `x < 0` with `a >= 0` it reaches 1e-4 at
+/// `a = 5, x = -5` and 0.75 at `a = 10, x = -5`.
 pub fn v(a: f64, x: f64) -> f64 {
     check_finite(a, x);
     ode_pair(a, x, Kind::V, 0.0).0
 }
 
 /// Argument derivative of [`v`].
+///
+/// Has the same accuracy as [`v`].
 pub fn dv(a: f64, x: f64) -> f64 {
     check_finite(a, x);
     ode_pair(a, x, Kind::V, 0.0).1

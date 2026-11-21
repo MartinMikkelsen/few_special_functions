@@ -273,6 +273,13 @@ pub fn d_whittaker_m_complex(kappa: Complex64, mu: Complex64, z: Complex64) -> C
 }
 
 /// Whittaker W for real parameters and positive real argument.
+///
+/// # Accuracy
+///
+/// Measured against mpmath (see the crate README), the relative error is below
+/// 2e-11 except where `1/2 + mu - kappa` is a non-positive integer (3.4e-7 at
+/// `kappa = 3, mu = 1.5, z = 0.01`) and in the decayed tail `kappa < 0`,
+/// `z >= 30` (1.2e-9).
 pub fn whittaker_w(kappa: f64, mu: f64, z: f64) -> f64 {
     assert!(
         kappa.is_finite() && mu.is_finite() && z.is_finite(),
@@ -302,6 +309,8 @@ pub fn whittaker_w_complex(kappa: Complex64, mu: Complex64, z: Complex64) -> Com
 }
 
 /// Argument derivative of [`whittaker_w`].
+///
+/// Has the accuracy of [`whittaker_w`], with 5.3e-8 in the decayed tail.
 pub fn d_whittaker_w(kappa: f64, mu: f64, z: f64) -> f64 {
     assert!(
         kappa.is_finite() && mu.is_finite() && z.is_finite(),

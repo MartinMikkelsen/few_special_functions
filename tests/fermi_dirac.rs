@@ -142,8 +142,8 @@ fn j_three_half() {
         1.5,
         1.0,
         fermi_dirac_integral(1.5, 1.0),
-        2.6616826247307124,
-        1e-10,
+        2.661682624732004,
+        1e-14,
     );
     check(
         1.5,
@@ -207,12 +207,11 @@ fn j_five_half() {
     );
 }
 
-// High branch (x >= 2), which the checks above barely touch. Antia (1993) promises
-// relative error < 1e-12 here for every half-integer index. Reference values are
+// Half-integer orders in the degenerate region x >= 2. Reference values are
 // F_j(x) = -Γ(j+1)·Li_{j+1}(-eˣ) evaluated with mpmath (dps=50), cross-checked to
 // agree with direct quadrature of the defining integral to < 1e-20.
 #[test]
-fn high_branch_matches_reference() {
+fn degenerate_half_integer_orders_match_reference() {
     let cases = [
         (-0.5, 2.0, 2.5953945832884786),
         (-0.5, 3.0, 3.2852167828877117),

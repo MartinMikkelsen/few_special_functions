@@ -121,6 +121,12 @@ fn voigt_fourier(x: f64, y: f64) -> f64 {
 /// For `y == 0`, `K(x, 0) = exp(-x²)`. The implementation follows the
 /// Fourier-expansion method of Abrarov, Quine, and Jagpal.
 ///
+/// # Accuracy
+///
+/// Measured against mpmath (see the crate README), the relative error is below
+/// 2e-13 for `|x| < 5` or `y > 0.01`. In the far wing, `|x| >= 5` with
+/// `y <= 0.01`, it grows to 1.5e-6 (at `x = 30, y = 1e-8`).
+///
 /// # Panics
 ///
 /// Panics with a domain error when `y < 0`.

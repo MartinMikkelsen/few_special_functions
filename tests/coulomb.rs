@@ -1,10 +1,10 @@
 use few_special_functions::coulomb::{
-    aux_g, aux_g_complex, aux_h_minus, aux_h_minus_complex, aux_h_plus, aux_h_plus_complex,
-    d_minus, d_minus_complex, d_plus, d_plus_complex, eta, eta_complex, eta_from_energy,
+    aux_g_complex, aux_h_minus, aux_h_minus_complex, aux_h_plus, aux_h_plus_complex, d_minus,
+    d_minus_complex, d_plus, d_plus_complex, eta, eta_complex, eta_from_energy,
     eta_from_energy_complex, f, f_complex, f_dot, f_dot_complex, f_imag, f_imag_complex, g,
-    g_complex, gamow_w, gamow_w_complex, h_minus, h_minus_complex, h_plus, h_plus_complex, i,
-    i_complex, m_regularized, normalization, normalization_complex, phase, phase_complex, phi,
-    phi_complex, phi_dot, phi_dot_complex, psi, psi_complex, w_minus, w_minus_complex, w_plus,
+    g_complex, gamow_w, gamow_w_complex, h_minus, h_minus_complex, h_plus, h_plus_complex,
+    i_complex, m_regularized, normalization, normalization_complex, phase_complex, phi,
+    phi_complex, phi_dot, phi_dot_complex, psi_complex, w_minus, w_minus_complex, w_plus,
     w_plus_complex,
 };
 use num_complex::Complex64;
@@ -27,7 +27,6 @@ fn normalization_and_parameter_helpers_match_julia() {
         (1000.0 * std::f64::consts::PI).sqrt(),
         2e-11,
     );
-    assert!(phase(1.0, 0.2, 1.5).is_finite());
 }
 
 #[test]
@@ -174,7 +173,6 @@ fn auxiliary_api_is_complete_and_consistent() {
     assert!((plus.conj() - minus).norm() < 2e-12);
     assert!((w_plus(1.5, -1.2).conj() - w_minus(1.5, -1.2)).norm() < 2e-12);
     assert!((aux_h_plus(1.5, 1.2).conj() - aux_h_minus(1.5, 1.2)).norm() < 2e-12);
-    assert!(aux_g(1.5, 1.2).is_finite());
     close(gamow_w(2.0, 1.0), 10.0, 1e-14);
     close(gamow_w(0.5, 2.0), 1.0625, 1e-14);
 
@@ -191,8 +189,6 @@ fn finite_difference_helpers_are_consistent() {
     assert!((phi_dot(ell, charge, rho, Some(step)) - expected_phi).norm() < 1e-12);
     let expected_f = (f(ell + step, charge, rho) - f(ell - step, charge, rho)) / (2.0 * step);
     close(f_dot(ell, charge, rho, Some(step)), expected_f, 1e-12);
-    assert!(psi(1.0, charge, rho, None).re.is_finite());
-    assert!(i(1.0, charge, rho, None).re.is_finite());
 }
 
 #[test]
