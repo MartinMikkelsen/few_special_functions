@@ -1,6 +1,6 @@
 [package]
 name = "few_special_functions"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.96"
 description = "Special functions matching the FewSpecialFunctions.jl API"

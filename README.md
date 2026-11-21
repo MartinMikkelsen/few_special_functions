@@ -27,7 +27,7 @@ API supports complex arguments; complex variants end in `_complex`.
 
 ```toml
 [dependencies]
-few_special_functions = "0.1"
+few_special_functions = "0.2"
 ```
 
 The minimum supported Rust version is 1.96.
