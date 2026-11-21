@@ -95,29 +95,11 @@ fn dawson_integral() {
     report.finish();
 }
 
-/// Everywhere except the far wing at small width, `|x| >= 5` with `y <= 0.01`.
-fn voigt_core(row: &Row) -> bool {
-    row.get("x").abs() < 5.0 || row.get("y") > 0.01
-}
-
 #[test]
 fn voigt_function() {
     let table = table!("voigt");
     let mut report = Report::default();
-    Check::new(&table, "K(x, y)", &["x", "y"], "value", 5e-13)
-        .domain("|x| < 5 or y > 0.01", voigt_core)
-        .parity("scipy")
-        .run(&mut report, |row| voigt::voigt(row.get("x"), row.get("y")));
-    report.finish();
-}
-
-#[test]
-#[ignore = "known accuracy gap: relative error up to 1.5e-6 in the far wing (x = 30, y = 1e-8)"]
-fn voigt_function_far_wing() {
-    let table = table!("voigt");
-    let mut report = Report::default();
-    Check::new(&table, "K(x, y)", &["x", "y"], "value", GAP_TARGET)
-        .domain("|x| >= 5 and y <= 0.01", |row| !voigt_core(row))
+    Check::new(&table, "K(x, y)", &["x", "y"], "value", 5e-15)
         .parity("scipy")
         .run(&mut report, |row| voigt::voigt(row.get("x"), row.get("y")));
     report.finish();

@@ -191,9 +191,19 @@ def dawson_tables() -> None:
     write("dawson", "D(x) = exp(-x^2) int_0^x exp(t^2) dt", ["x", "value", "scipy"], rows)
 
 
+def voigt_quad(x, y):
+    """(y/pi) int exp(-t^2)/((x-t)^2 + y^2) dt, with the Lorentzian peak at t = x
+    resolved by breakpoints at multiples of y."""
+    points = {-mpmath.inf, mpf(-6), mpf(0), mpf(6), mpmath.inf}
+    if abs(x) < 40:
+        points |= {x + d for d in (-1, -100 * y, -y, 0, y, 100 * y, 1)}
+    points = sorted(points)
+    return y / mpmath.pi * mpmath.quad(lambda t: mpmath.exp(-t**2) / ((x - t) ** 2 + y**2), points)
+
+
 def voigt_tables() -> None:
-    xs = [0.0, 0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0, 100.0, -1.5]
-    ys = [0.0, 1e-8, 1e-4, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0]
+    xs = [0.0, 0.1, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 5.5, 7.0, 10.0, 15.0, 30.0, 70.0, 100.0, 300.0, 1e3, 1e4, 1e6, -1.5]
+    ys = [0.0, 1e-12, 1e-8, 1e-6, 1e-4, 1e-3, 0.01, 0.03, 0.1, 0.3, 0.5, 0.7, 1.0, 2.0, 5.0, 10.0, 30.0, 70.0, 100.0, 1e3]
     rows = []
     for x in xs:
         for y in ys:
@@ -202,14 +212,11 @@ def voigt_tables() -> None:
                 value = mpmath.exp(-xx**2)
             else:
                 z = mpc(xx, yy)
-                # Re w loses about log10(|w| / Re w) digits to cancellation.
-                with mp.workdps(DPS + 20):
+                # Re w loses about log10(|w| / Re w) <= log10(1 + |x|/y) digits to cancellation.
+                with mp.workdps(DPS + 20 + int(mpmath.log10(1 + abs(xx) / yy))):
                     value = (mpmath.exp(-z**2) * mpmath.erfc(-1j * z)).real
-                if y >= 0.01 and abs(x) <= 10:
-                    quad = yy / mpmath.pi * mpmath.quad(
-                        lambda t: mpmath.exp(-t**2) / ((xx - t) ** 2 + yy**2),
-                        [-mpmath.inf, min(xx, 0), max(xx, 0), mpmath.inf])
-                    agree(value, quad, f"voigt({x}, {y})", rel=mpf(10) ** -25)
+                if abs(x) <= 1e3:
+                    agree(value, voigt_quad(xx, yy), f"voigt({x}, {y})", rel=mpf(10) ** -25)
             rows.append([fmt_float(x), fmt_float(y), fmt(value), fmt_float(sc.wofz(complex(x, y)).real)])
     write("voigt", "K(x, y) = (y/pi) int exp(-t^2)/((x-t)^2+y^2) dt = Re w(x + i y)",
           ["x", "y", "value", "scipy"], rows)

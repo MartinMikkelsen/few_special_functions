@@ -113,7 +113,7 @@ function, its error on the same points is shown for comparison.
 | `bose_einstein_integral`, `_norm` | k ∈ [−4.5, 4.5], η ∈ [−50, 0] | 1.1e-15 | — |
 | `debye_function` | n ∈ [0.5, 4], β ∈ [0.5, 3], x ∈ [1e-3, 30] | 4.8e-16 | — |
 | `dawson` | \|x\| ∈ [1e-10, 1e10] | 9.5e-16 | 8.3e-16 |
-| `voigt` | \|x\| < 5 or y > 0.01 | 1.7e-13 | 7.2e-15 |
+| `voigt` | \|x\| ≤ 10⁶, y ∈ [0, 10³] | 1.2e-15 | 7.2e-15 |
 | `fresnel_c`, `fresnel_s` | \|x\| ∈ [1e-6, 1e3] | 2.2e-12 | 2.1e-16 |
 | `fresnel_c_complex`, `fresnel_s_complex` | \|z\| ≤ 4.5 | 5.5e-12 | — |
 | `marcum_q` | μ ∈ [0.5, 25], a, b ∈ [0, 30] | 2.9e-14 | 5.5e-14 |
@@ -137,5 +137,4 @@ that assert a relative error of 1e-12; run them with
 
 | Function | Region | Max. relative error |
 |---|---|---|
-| `voigt` | \|x\| ≥ 5 and y ≤ 0.01 | 1.5e-6 (SciPy: 7.0e-15) |
 | `whittaker_w`, `d_whittaker_w` | 1/2 + μ − κ a non-positive integer, or κ < 0 with z ≥ 30 | 3.4e-7 |
