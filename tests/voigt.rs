@@ -25,9 +25,8 @@ fn exact_special_values() {
 }
 
 #[test]
-#[should_panic(expected = "y ≥ 0")]
-fn negative_y_is_a_domain_error() {
-    voigt(1.0, -0.1);
+fn negative_y_gives_nan() {
+    assert!(voigt(1.0, -0.1).is_nan());
 }
 
 #[test]

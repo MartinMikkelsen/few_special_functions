@@ -134,13 +134,11 @@ fn elementary_and_large_argument_cases() {
 }
 
 #[test]
-#[should_panic]
 fn real_api_rejects_negative_argument() {
-    whittaker_w(0.2, 0.3, -1.0);
+    assert!(whittaker_w(0.2, 0.3, -1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn m_rejects_parameter_pole() {
-    d_whittaker_m(0.2, -0.5, 1.0);
+    assert!(d_whittaker_m(0.2, -0.5, 1.0).is_nan());
 }

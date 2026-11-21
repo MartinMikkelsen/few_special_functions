@@ -1,68 +1,24 @@
-/// Regularized upper incomplete gamma Q(a, x) = Γ(a,x) / Γ(a).
-///
-/// Uses a convergent series for small `x` and a continued fraction in the tail.
-pub(crate) fn inc_gamma_q(a: f64, x: f64) -> f64 {
-    debug_assert!(a > 0.0 && x >= 0.0);
-    if x == 0.0 {
-        return 1.0;
-    }
-    if x < a + 1.0 {
-        1.0 - inc_gamma_series(a, x)
-    } else {
-        inc_gamma_cf(a, x)
-    }
-}
+//! Generalized Debye functions D_n(β, x).
+//!
+//! Ported from `src/Debye.jl` of FewSpecialFunctions.jl
+//! (<https://github.com/MartinMikkelsen/FewSpecialFunctions.jl>, MIT license),
+//! commit b909e7b22696e942762f800ddad34a70d5b9d51d.
+//!
+//! # Iteration cap and tolerance
+//!
+//! The integral is evaluated by adaptive Gauss–Kronrod quadrature to a
+//! relative tolerance `max(tol, 8 ε)` (`tol = 1e-35` unless given), with at
+//! most 2000 subintervals unless given. Reaching the cap gives
+//! [`SpecialError::NoConvergence`] from the `*_checked` functions and NaN from
+//! the others.
 
-/// Series for P(a, x): exp(-x + a·ln(x) - ln Γ(a)) · Σ xᵏ / (a·(a+1)·…·(a+k))
-fn inc_gamma_series(a: f64, x: f64) -> f64 {
-    let log_prefix = -x + a * x.ln() - libm::lgamma(a);
-    let mut ap = a;
-    let mut term = 1.0 / a;
-    let mut sum = term;
-    for _ in 0..300 {
-        ap += 1.0;
-        term *= x / ap;
-        sum += term;
-        if term.abs() < sum.abs() * 3e-15 {
-            break;
-        }
-    }
-    log_prefix.exp() * sum
-}
+use crate::SpecialError;
+use crate::numerics::integrate;
+use std::num::NonZeroUsize;
 
-/// Lentz CF for Q(a, x) = Γ(a,x)/Γ(a).
-/// From NR §6.2: Q = exp(-x + a·ln(x) - ln Γ(a)) · h
-/// where h is the CF value.
-fn inc_gamma_cf(a: f64, x: f64) -> f64 {
-    const TINY: f64 = 1e-300;
-    let log_prefix = -x + a * x.ln() - libm::lgamma(a);
-
-    let mut b = x + 1.0 - a;
-    let mut c = 1.0 / TINY;
-    let mut d = if b.abs() < TINY { TINY } else { 1.0 / b };
-    let mut h = d;
-
-    for i in 1_usize..=300 {
-        let an = -(i as f64) * (i as f64 - a);
-        b += 2.0;
-        d = an * d + b;
-        if d.abs() < TINY {
-            d = TINY;
-        }
-        d = 1.0 / d;
-        c = b + an / c;
-        if c.abs() < TINY {
-            c = TINY;
-        }
-        let delta = d * c;
-        h *= delta;
-        if (delta - 1.0).abs() < 3e-15 {
-            break;
-        }
-    }
-
-    log_prefix.exp() * h
-}
+const FAMILY: &str = "debye";
+/// Subinterval cap of [`debye_function`].
+const DEFAULT_SUBINTERVALS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1999);
 
 /// Generalized Debye function D_n(β, x).
 ///
@@ -76,10 +32,11 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
 /// β = 1. At zero the limiting value is zero for β < 1, one for β = 1,
 /// and positive infinity for β > 1.
 ///
-/// Uses the series expansion from doi:10.1007/s10765-007-0256-1.
+/// Evaluated by adaptive Gauss–Kronrod quadrature of the defining integral
+/// after a change of variables that removes the endpoint singularity. See also
+/// <https://doi.org/10.1007/s10765-007-0256-1>.
 ///
-/// # Panics
-/// Panics if n ≤ 0, β ≤ 0, or x < 0.
+/// Returns NaN unless `n > 0`, `0 < β < n + 1` and `x ≥ 0`.
 ///
 /// # Examples
 ///
@@ -93,63 +50,153 @@ fn inc_gamma_cf(a: f64, x: f64) -> f64 {
 /// assert!(debye_function(1.0, 1.0, 1.0) < 1.0);
 /// ```
 pub fn debye_function(n: f64, beta: f64, x: f64) -> f64 {
-    debye_function_tol(n, beta, x, 1e-35, 2000)
+    debye_function_checked(n, beta, x).unwrap_or(f64::NAN)
 }
 
-/// Convenience form of [`debye_function`] with order `n = 1`.
-pub fn debye_function_order_one(beta: f64, x: f64) -> f64 {
-    debye_function(1.0, beta, x)
-}
-
-/// Like [`debye_function`] but with explicit convergence tolerance `tol` and
-/// maximum number of series terms `max_terms`.
+/// [`debye_function`], reporting a numerical failure instead of returning NaN.
 ///
-/// Useful when you need a looser tolerance for speed, or want to guard against
-/// slow convergence for unusual parameter combinations.
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if the quadrature needs more than 2000
+/// subintervals.
 ///
 /// # Examples
 ///
 /// ```
-/// use few_special_functions::debye::debye_function_tol;
+/// use few_special_functions::debye::{debye_function, debye_function_checked};
 ///
-/// // Should agree with debye_function to within a few times the tolerance
-/// use few_special_functions::debye::debye_function;
-/// let v1 = debye_function(2.0, 1.0, 1.0);
-/// let v2 = debye_function_tol(2.0, 1.0, 1.0, 1e-8, 500);
-/// assert!((v1 - v2).abs() < 1e-5);
+/// assert_eq!(debye_function_checked(3.0, 1.0, 2.0), Ok(debye_function(3.0, 1.0, 2.0)));
 /// ```
-pub fn debye_function_tol(n: f64, beta: f64, x: f64, tol: f64, max_terms: usize) -> f64 {
-    assert!(
-        n.is_finite() && n > 0.0,
-        "n must be positive and finite, got {n}"
-    );
-    assert!(
-        beta.is_finite() && beta > 0.0 && beta < n + 1.0,
-        "beta must satisfy 0 < beta < n + 1, got {beta}"
-    );
-    assert!(x >= 0.0, "x must be non-negative, got {x}");
-    assert!(
-        tol.is_finite() && tol > 0.0,
-        "tol must be positive and finite"
-    );
-    assert!(max_terms > 0, "max_terms must be positive");
+pub fn debye_function_checked(n: f64, beta: f64, x: f64) -> Result<f64, SpecialError> {
+    debye_function_tol_checked(n, beta, x, 1e-35, DEFAULT_SUBINTERVALS)
+}
 
-    if x == 0.0 {
-        return if beta < 1.0 {
+/// Convenience form of [`debye_function`] with order `n = 1`.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::debye::debye_function_order_one;
+/// use std::f64::consts::PI;
+///
+/// // D_1(1, x) = (1/x) ∫₀ˣ t/(eᵗ − 1) dt, which tends to π²/(6x) for large x.
+/// let x = 50.0;
+/// let v = debye_function_order_one(1.0, x);
+/// assert!((v - PI * PI / (6.0 * x)).abs() < 1e-14 * v);
+/// ```
+pub fn debye_function_order_one(beta: f64, x: f64) -> f64 {
+    debye_function(1.0, beta, x)
+}
+
+/// [`debye_function_order_one`], reporting a numerical failure instead of
+/// returning NaN.
+///
+/// # Errors
+///
+/// As for [`debye_function_checked`].
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::debye::{debye_function_order_one, debye_function_order_one_checked};
+///
+/// assert_eq!(debye_function_order_one_checked(1.0, 2.0), Ok(debye_function_order_one(1.0, 2.0)));
+/// ```
+pub fn debye_function_order_one_checked(beta: f64, x: f64) -> Result<f64, SpecialError> {
+    debye_function_checked(1.0, beta, x)
+}
+
+/// Like [`debye_function`] but with an explicit relative quadrature tolerance
+/// `tol` (floored at `8 ε`) and a limit `max_subintervals` on the number of quadrature
+/// subintervals.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::debye::{debye_function, debye_function_tol};
+/// use std::num::NonZeroUsize;
+///
+/// // Agrees with debye_function to within a few times the tolerance.
+/// let subintervals = NonZeroUsize::new(500).expect("500 is nonzero");
+/// let v1 = debye_function(2.0, 1.0, 1.0);
+/// let v2 = debye_function_tol(2.0, 1.0, 1.0, 1e-8, subintervals);
+/// assert!((v1 - v2).abs() < 1e-7);
+/// ```
+pub fn debye_function_tol(
+    n: f64,
+    beta: f64,
+    x: f64,
+    tol: f64,
+    max_subintervals: NonZeroUsize,
+) -> f64 {
+    debye_function_tol_checked(n, beta, x, tol, max_subintervals).unwrap_or(f64::NAN)
+}
+
+/// [`debye_function_tol`], reporting a numerical failure instead of returning
+/// NaN.
+///
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if the quadrature needs more than
+/// `max_subintervals` subintervals.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::SpecialError;
+/// use few_special_functions::debye::debye_function_tol_checked;
+/// use std::num::NonZeroUsize;
+///
+/// let one = NonZeroUsize::MIN;
+/// assert!(matches!(
+///     debye_function_tol_checked(3.0, 1.0, 2.0, 1e-15, one),
+///     Err(SpecialError::NoConvergence { .. })
+/// ));
+/// ```
+pub fn debye_function_tol_checked(
+    n: f64,
+    beta: f64,
+    x: f64,
+    tol: f64,
+    max_subintervals: NonZeroUsize,
+) -> Result<f64, SpecialError> {
+    let in_domain = n.is_finite()
+        && n > 0.0
+        && beta.is_finite()
+        && beta > 0.0
+        && beta < n + 1.0
+        && x >= 0.0
+        && tol.is_finite()
+        && tol > 0.0;
+    if !in_domain {
+        return Ok(f64::NAN);
+    }
+
+    Ok(if x == 0.0 {
+        if beta < 1.0 {
             0.0
         } else if beta == 1.0 {
             1.0
         } else {
             f64::INFINITY
-        };
-    }
-    if x.is_infinite() {
-        return 0.0;
-    }
-    if beta == 1.0 && n < f64::EPSILON.sqrt() {
-        return 1.0;
-    }
+        }
+    } else if x.is_infinite() {
+        0.0
+    } else if beta == 1.0 && n < f64::EPSILON.sqrt() {
+        1.0
+    } else {
+        positive_argument(n, beta, x, tol, max_subintervals.get())?
+    })
+}
 
+/// D_n(β, x) for finite `x > 0` and parameters in the domain.
+fn positive_argument(
+    n: f64,
+    beta: f64,
+    x: f64,
+    tol: f64,
+    max_subintervals: usize,
+) -> Result<f64, SpecialError> {
     let q = n + 1.0 - beta;
     let m = q.min(1.0);
     let scale = x.min((n / beta).max(1.0));
@@ -175,15 +222,24 @@ pub fn debye_function_tol(n: f64, beta: f64, x: f64, tol: f64, max_terms: usize)
         (log_power - (m + 1.0) * (-s).ln_1p() + beta * log_bose).exp()
     };
     let relative_tolerance = tol.max(8.0 * f64::EPSILON);
-    let integral = crate::numerics::integrate(integrand, 0.0, upper, relative_tolerance, max_terms)
-        .unwrap_or_else(|message| panic!("Debye quadrature failed: {message}"));
+    let integral = integrate(
+        integrand,
+        0.0,
+        upper,
+        relative_tolerance,
+        max_subintervals,
+        FAMILY,
+    )?;
 
     let result = (n / m) * integral * scale.powf(1.0 - beta) * (scale / x).powf(n);
     if result.is_finite() && result > 0.0 {
-        return result;
+        return Ok(result);
     }
 
-    ((n / m).ln() + (1.0 - beta) * scale.ln() + n * (scale.ln() - x.ln()) + integral.ln()).exp()
+    Ok(
+        ((n / m).ln() + (1.0 - beta) * scale.ln() + n * (scale.ln() - x.ln()) + integral.ln())
+            .exp(),
+    )
 }
 
 #[cfg(test)]
@@ -197,26 +253,24 @@ mod tests {
     }
 
     #[test]
-    fn inc_gamma_q_relative_accuracy_in_the_tail() {
-        assert_eq!(inc_gamma_q(1.0, 0.0), 1.0);
-        // Q(1, x) = e^{-x} exactly, over a range where 1 - P(1, x) rounds to zero.
-        for &x in &[0.5_f64, 1.5, 2.0, 10.0, 40.0, 100.0, 300.0, 700.0] {
-            let want = (-x).exp();
-            let rel = (inc_gamma_q(1.0, x) - want).abs() / want;
-            assert!(rel < 1e-12, "Q(1,{x}) rel {rel:.2e}");
-        }
-        // Q(½, x) = erfc(√x)
-        #[allow(clippy::excessive_precision)]
-        let half = [
-            (0.5_f64, 0.317310507862914226_f64),
-            (2.0, 0.0455002638963585105),
-            (20.0, 2.53962858946993629e-10),
-            (100.0, 2.08848758376254478e-45),
-            (400.0, 5.39586561160790086e-176),
-        ];
-        for (x, want) in half {
-            let rel = (inc_gamma_q(0.5, x) - want).abs() / want;
-            assert!(rel < 1e-11, "Q(0.5,{x}) rel {rel:.2e}");
+    fn iteration_cap_reports_no_convergence() {
+        crate::error::with_iteration_cap(1, || {
+            assert_eq!(
+                debye_function_checked(3.0, 1.0, 2.0),
+                Err(SpecialError::no_convergence(FAMILY, 1))
+            );
+            assert!(debye_function(3.0, 1.0, 2.0).is_nan());
+            assert!(debye_function_order_one(1.0, 2.0).is_nan());
+        });
+    }
+
+    #[test]
+    fn parameters_outside_the_domain_give_nan() {
+        for (n, beta, x) in [(0.0, 1.0, 1.0), (1.0, 2.5, 1.0), (1.0, 1.0, -1.0)] {
+            assert_eq!(
+                debye_function_checked(n, beta, x).map(f64::is_nan),
+                Ok(true)
+            );
         }
     }
 }

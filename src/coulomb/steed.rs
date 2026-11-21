@@ -14,7 +14,17 @@
 //!
 //! Written from the published formulas; no code was ported.
 
+use super::FAMILY;
+use crate::SpecialError;
+use crate::error::iteration_cap;
 use num_complex::Complex64;
+
+/// Cap on the truncation depth of CF1.
+pub(crate) const MAX_CF1_DEPTH: usize = 1 << 26;
+/// Cap on the terms of CF2.
+pub(crate) const MAX_CF2_TERMS: usize = 1_000_000;
+/// Cap on the terms of one Taylor step.
+pub(crate) const MAX_TAYLOR_TERMS: usize = 2000;
 
 /// `F`, `G` and `G'` at one point.
 #[derive(Clone, Copy, Debug)]
@@ -30,7 +40,7 @@ pub(crate) fn in_domain(ell: f64, eta: f64, rho: f64) -> bool {
 }
 
 /// `F`, `G` and `G'`; requires [`in_domain`].
-pub(crate) fn waves(ell: f64, eta: f64, rho: f64) -> Waves {
+pub(crate) fn waves(ell: f64, eta: f64, rho: f64) -> Result<Waves, SpecialError> {
     debug_assert!(in_domain(ell, eta, rho));
     // Steed's method loses accuracy inside the turning point and, through slow
     // CF2 convergence, at small rho; below `switch` it is used only to start
@@ -41,7 +51,7 @@ pub(crate) fn waves(ell: f64, eta: f64, rho: f64) -> Waves {
         return steed(ell, eta, rho);
     }
 
-    let start = steed(ell, eta, switch);
+    let start = steed(ell, eta, switch)?;
     let (mut g, mut dg) = (start.g, start.dg);
     let mut position = switch;
     while position > rho {
@@ -53,33 +63,33 @@ pub(crate) fn waves(ell: f64, eta: f64, rho: f64) -> Waves {
         let step = (position - rho)
             .min(position / (2.0 + ell.max(0.0)))
             .min(2.0 / q.max(1.0).sqrt());
-        (g, dg) = taylor_step(ell, eta, position, g, dg, -step);
+        (g, dg) = taylor_step(ell, eta, position, g, dg, -step)?;
         position = if step == position - rho {
             rho
         } else {
             position - step
         };
     }
-    let (ratio, _) = cf1(ell, eta, rho);
+    let (ratio, _) = cf1(ell, eta, rho)?;
     let f = 1.0 / (ratio * g - dg);
-    Waves { f, g, dg }
+    Ok(Waves { f, g, dg })
 }
 
 /// Steed's method at `rho`.
-fn steed(ell: f64, eta: f64, rho: f64) -> Waves {
-    let (ratio, sign) = cf1(ell, eta, rho);
-    let pq = cf2(ell, eta, rho);
+fn steed(ell: f64, eta: f64, rho: f64) -> Result<Waves, SpecialError> {
+    let (ratio, sign) = cf1(ell, eta, rho)?;
+    let pq = cf2(ell, eta, rho)?;
     let (p, q) = (pq.re, pq.im);
     // G' + iF' = (p + iq)(G + iF) and F' = ratio F give G = gamma F, and the
     // Wronskian F'G - FG' = 1 gives F² ((ratio - p) gamma + q) = 1.
     let gamma = (ratio - p) / q;
     let f = sign / ((ratio - p) * gamma + q).sqrt();
     let g = gamma * f;
-    Waves {
+    Ok(Waves {
         f,
         g,
         dg: p * g - q * f,
-    }
+    })
 }
 
 /// CF1: `F'/F` at order `ell`, and the sign of `F`.
@@ -89,8 +99,9 @@ fn steed(ell: f64, eta: f64, rho: f64) -> Waves {
 /// The fraction is evaluated from a truncation depth `n` upward. Its partial
 /// tails `t_k` satisfy `F_{ell+k}/F_{ell+k-1} = R_{ell+k}/t_k`, and `F` is
 /// positive at high order, so the sign of `F` is the product of the signs of
-/// the tails. The depth is doubled until the result stops changing.
-fn cf1(ell: f64, eta: f64, rho: f64) -> (f64, f64) {
+/// the tails. The depth is doubled until the result stops changing, up to
+/// [`MAX_CF1_DEPTH`].
+fn cf1(ell: f64, eta: f64, rho: f64) -> Result<(f64, f64), SpecialError> {
     let s = |k: f64| k / rho + eta / k;
     let r2 = |k: f64| 1.0 + (eta / k) * (eta / k);
     let evaluate = |depth: usize| {
@@ -106,18 +117,22 @@ fn cf1(ell: f64, eta: f64, rho: f64) -> (f64, f64) {
         (s(ell + 1.0) - r2(ell + 1.0) / tail, sign)
     };
 
-    let mut depth = (rho + eta.abs()) as usize + 40;
+    let max_depth = iteration_cap(MAX_CF1_DEPTH);
+    let initial_depth = rho + eta.abs() + 40.0;
+    if initial_depth >= max_depth as f64 {
+        return Err(SpecialError::no_convergence(FAMILY, max_depth));
+    }
+    let mut depth = initial_depth as usize;
     let mut previous = evaluate(depth);
     loop {
+        if depth >= max_depth {
+            return Err(SpecialError::no_convergence(FAMILY, max_depth));
+        }
         depth *= 2;
         let next = evaluate(depth);
         if (next.0 - previous.0).abs() <= 4.0 * f64::EPSILON * next.0.abs() {
-            return next;
+            return Ok(next);
         }
-        assert!(
-            depth < 1 << 26,
-            "Coulomb CF1 did not converge (ell = {ell}, eta = {eta}, rho = {rho})"
-        );
         previous = next;
     }
 }
@@ -129,8 +144,7 @@ fn cf1(ell: f64, eta: f64, rho: f64) -> (f64, f64) {
 /// `a = i eta - ell`, `c = i eta + ell + 1` and `b_k = 2 (rho - eta + i k)`.
 /// `X` is evaluated by the modified Lentz method; its leading term `b_1` never
 /// vanishes, so no artificial starting value is needed.
-fn cf2(ell: f64, eta: f64, rho: f64) -> Complex64 {
-    const MAX_TERMS: usize = 1_000_000;
+fn cf2(ell: f64, eta: f64, rho: f64) -> Result<Complex64, SpecialError> {
     // Replaces an exactly zero Lentz denominator; its square must not underflow.
     const SMALL: f64 = 1e-150;
     let a = Complex64::new(-ell, eta);
@@ -139,13 +153,14 @@ fn cf2(ell: f64, eta: f64, rho: f64) -> Complex64 {
     let leading = Complex64::new(0.0, 1.0 - eta / rho);
     let numerator = a * c;
     if numerator == Complex64::new(0.0, 0.0) {
-        return leading;
+        return Ok(leading);
     }
 
     let mut x = b(1);
     let mut lentz_c = x;
     let mut lentz_d = Complex64::new(0.0, 0.0);
-    for k in 2..=MAX_TERMS {
+    let max_terms = iteration_cap(MAX_CF2_TERMS);
+    for k in 2..=max_terms {
         let shift = (k - 1) as f64;
         let partial_numerator = (a + shift) * (c + shift);
         lentz_d = b(k) + partial_numerator * lentz_d;
@@ -160,10 +175,10 @@ fn cf2(ell: f64, eta: f64, rho: f64) -> Complex64 {
         let delta = lentz_c * lentz_d;
         x *= delta;
         if (delta - 1.0).norm() <= 2.0 * f64::EPSILON {
-            return leading + Complex64::new(0.0, 1.0 / rho) * numerator / x;
+            return Ok(leading + Complex64::new(0.0, 1.0 / rho) * numerator / x);
         }
     }
-    panic!("Coulomb CF2 did not converge (ell = {ell}, eta = {eta}, rho = {rho})")
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 /// One Taylor-series step of `u'' = (ell(ell+1)/rho² + 2 eta/rho - 1) u` from
@@ -175,8 +190,14 @@ fn cf2(ell: f64, eta: f64, rho: f64) -> Complex64 {
 ///  - 2 center (k+1) k c_{k+1} - k(k-1) c_k`
 /// with `A = ell(ell+1) + 2 eta center - center²` and `B = 2 eta - 2 center`.
 /// The series converges for `|step| < center`; callers keep `|step| <= center/2`.
-fn taylor_step(ell: f64, eta: f64, center: f64, u: f64, du: f64, step: f64) -> (f64, f64) {
-    const MAX_TERMS: usize = 2000;
+fn taylor_step(
+    ell: f64,
+    eta: f64,
+    center: f64,
+    u: f64,
+    du: f64,
+    step: f64,
+) -> Result<(f64, f64), SpecialError> {
     let a = ell * (ell + 1.0) + 2.0 * eta * center - center * center;
     let b = 2.0 * eta - 2.0 * center;
     let scale = center * center;
@@ -186,7 +207,8 @@ fn taylor_step(ell: f64, eta: f64, center: f64, u: f64, du: f64, step: f64) -> (
     let mut derivative = du;
     let mut power = step; // step^(k+1)
     let mut quiet = 0;
-    for k in 0..MAX_TERMS {
+    let max_terms = iteration_cap(MAX_TAYLOR_TERMS);
+    for k in 0..max_terms {
         let kf = k as f64;
         let next = (a * c_k + b * c_km1
             - c_km2
@@ -203,12 +225,12 @@ fn taylor_step(ell: f64, eta: f64, center: f64, u: f64, du: f64, step: f64) -> (
         {
             quiet += 1;
             if quiet == 2 {
-                return (value, derivative);
+                return Ok((value, derivative));
             }
         } else {
             quiet = 0;
         }
         (c_km2, c_km1, c_k, c_kp1) = (c_km1, c_k, c_kp1, next);
     }
-    panic!("Coulomb Taylor series did not converge (ell = {ell}, eta = {eta}, rho = {center})")
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }

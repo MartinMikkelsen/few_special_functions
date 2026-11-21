@@ -1,7 +1,10 @@
 mod table;
 
 use few_special_functions::{
-    clausen::clausen, debye::debye_function, fermi_dirac::fermi_dirac_integral, fresnel::fresnel,
+    clausen::{ClausenOrder, clausen},
+    debye::debye_function,
+    fermi_dirac::fermi_dirac_integral,
+    fresnel::fresnel,
     marcum_q::marcum_q,
 };
 use std::f64::consts::PI;
@@ -14,7 +17,11 @@ fn main() {
         let theta = i as f64 * PI / 3.0;
         table::row(
             &format!("θ = {i}π/3"),
-            &[clausen(2, theta), clausen(3, theta), clausen(4, theta)],
+            &[
+                clausen(ClausenOrder::Two, theta),
+                clausen(ClausenOrder::Three, theta),
+                clausen(ClausenOrder::Four, theta),
+            ],
         );
     }
 

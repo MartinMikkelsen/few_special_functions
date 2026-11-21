@@ -1,19 +1,55 @@
-use std::f64::consts::PI;
+//! Generalized Marcum Q-function Q_μ(a, b).
+//!
+//! Ported from `src/MarcumQ.jl` of FewSpecialFunctions.jl
+//! (<https://github.com/MartinMikkelsen/FewSpecialFunctions.jl>, MIT license),
+//! commit b909e7b22696e942762f800ddad34a70d5b9d51d.
+//! The algorithm is from A. Gil, J. Segura and N. M. Temme,
+//! <https://arxiv.org/abs/1311.0681>.
+//!
+//! # Iteration caps and tolerances
+//!
+//! | Method | Stops when | Cap |
+//! |---|---|---|
+//! | Series in `Q(μ + n, y)` (`x < 30`) | a term is below `ε` of the sum | 5000 terms |
+//! | Expansion for large `ξ = 2√(xy)` | a term is below `ε` of the sum | 500 terms |
+//! | Continued fraction for `I_μ/I_{μ−1}` | a correction is within `3e-15` of one | 2000 terms |
+//! | Series for `e^{−x} I_n(x)`, `x <= 700` | a term is below `3e-16` of the sum | 1000 terms |
+//! | Continued fraction of `Q(a, x)` | two depths agree to `4 ε` | depth 2²⁴ |
+//!
+//! Reaching a cap gives [`SpecialError::NoConvergence`] from the `*_checked`
+//! functions and NaN from the others. The asymptotic series of `erfc` and of
+//! `e^{−x} I_n(x)` are truncated at their smallest term.
 
-use crate::debye::inc_gamma_q;
+use std::f64::consts::PI;
+use std::num::NonZeroU32;
+
+use crate::SpecialError;
+use crate::error::iteration_cap;
+use crate::numerics::inc_gamma_q;
+
+const FAMILY: &str = "marcum_q";
+/// Cap on the terms of the series in `Q(μ + n, y)`.
+const MAX_SMALL_X_TERMS: usize = 5000;
+/// Cap on the terms of the large-`ξ` expansion.
+const MAX_LARGE_XI_TERMS: usize = 500;
+/// Cap on the terms of the Bessel-ratio continued fraction. It needs about
+/// `6 √ξ` terms; the recurrence uses it for `ξ < 135²/2`, about 570 terms.
+const MAX_RATIO_TERMS: usize = 2000;
+/// Cap on the terms of the Bessel series.
+const MAX_BESSEL_TERMS: usize = 1000;
 
 // ─── Mathematical primitives ─────────────────────────────────────────────────
 
 /// Real complementary error function erfc(x) = 1 − erf(x).
-fn erfc_real(x: f64) -> f64 {
+fn erfc_real(x: f64) -> Result<f64, SpecialError> {
     if x < 0.0 {
-        return 2.0 - erfc_real(-x);
+        return Ok(2.0 - erfc_real(-x)?);
     }
     if x < 6.0 {
         // erfc(x) = Q(½, x²). The erf series this replaces reached terms of order 4·10⁴
         // before being subtracted from 1, and the asymptotic series below x ≈ 6 was
         // truncated at its smallest term while that term was still of order 10⁻⁸.
-        inc_gamma_q(0.5, x * x)
+        inc_gamma_q(0.5, x * x, FAMILY)
     } else {
         // Asymptotic: erfc(x) ~ exp(-x²)/(x√π) · Σ (-1)^m (2m-1)!!/(2x²)^m
         let x2 = x * x;
@@ -29,16 +65,16 @@ fn erfc_real(x: f64) -> f64 {
             min_norm = term.abs();
             sum += term;
         }
-        (-x2).exp() / (x * PI.sqrt()) * sum
+        Ok((-x2).exp() / (x * PI.sqrt()) * sum)
     }
 }
 
 /// Scaled modified Bessel function exp(−x) · I_n(x) for integer n ≥ 0.
 ///
 /// Uses the series for x ≤ 700 and the asymptotic expansion for x > 700.
-fn bessel_i_scaled(n: usize, x: f64) -> f64 {
+fn bessel_i_scaled(n: usize, x: f64) -> Result<f64, SpecialError> {
     if x == 0.0 {
-        return if n == 0 { 1.0 } else { 0.0 };
+        return Ok(if n == 0 { 1.0 } else { 0.0 });
     }
     if x > 700.0 {
         // Asymptotic: exp(-x)·I_n(x) ~ 1/√(2πx)·(1 - (4n²-1)/(8x) + ...)
@@ -59,38 +95,40 @@ fn bessel_i_scaled(n: usize, x: f64) -> f64 {
                 break;
             }
         }
-        sum / (2.0 * PI * x).sqrt()
+        Ok(sum / (2.0 * PI * x).sqrt())
     } else {
         // Series via the log of the first term to avoid overflow:
         //   exp(-x)·I_n(x) = Σ_{k=0}^∞ (x/2)^{n+2k} / (k!·(n+k)!) · exp(-x)
         let half_x = x / 2.0;
         let log_term0 = n as f64 * half_x.ln() - libm::lgamma(n as f64 + 1.0) - x;
         if log_term0 < -745.0 {
-            return 0.0;
+            return Ok(0.0);
         }
         let mut term = log_term0.exp();
         let mut sum = term;
         let h2 = half_x * half_x;
-        for k in 1_usize..=600 {
+        let max_terms = iteration_cap(MAX_BESSEL_TERMS);
+        for k in 1..=max_terms {
             term *= h2 / (k as f64 * (n + k) as f64);
             sum += term;
             if term < sum * 3e-16 {
-                break;
+                return Ok(sum);
             }
         }
-        sum
+        Err(SpecialError::no_convergence(FAMILY, max_terms))
     }
 }
 
 /// Ratio I_μ(ξ) / I_{μ−1}(ξ) via the modified Lentz continued fraction.
 ///
 /// CF: I_μ(ξ)/I_{μ−1}(ξ) = 1/(2μ/ξ + 1/(2(μ+1)/ξ + 1/(2(μ+2)/ξ + ...)))
-fn bessel_i_ratio(mu: f64, xi: f64) -> f64 {
+fn bessel_i_ratio(mu: f64, xi: f64) -> Result<f64, SpecialError> {
     const TINY: f64 = 1e-300;
     let mut f = TINY;
     let mut c = f;
     let mut d = 0.0_f64;
-    for j in 1_usize..=300 {
+    let max_terms = iteration_cap(MAX_RATIO_TERMS);
+    for j in 1..=max_terms {
         let b = 2.0 * (mu + j as f64 - 1.0) / xi;
         d += b;
         if d.abs() < TINY {
@@ -104,10 +142,10 @@ fn bessel_i_ratio(mu: f64, xi: f64) -> f64 {
         let delta = c * d;
         f *= delta;
         if (delta - 1.0).abs() < 3e-15 {
-            break;
+            return Ok(f);
         }
     }
-    f
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 // ─── Marcum Q helper functions ────────────────────────────────────────────────
@@ -200,27 +238,29 @@ fn f1_f2(x: f64, m: f64) -> (f64, f64) {
 /// Series expansion (section 3) — used when x < 30.
 ///
 /// Q_M(a,b) = exp(−x) · Σ_{n=0}^∞ x^n/n! · Q(M+n, y)
-fn marcum_q_small_x(m: f64, x: f64, y: f64) -> f64 {
+fn marcum_q_small_x(m: f64, x: f64, y: f64) -> Result<f64, SpecialError> {
     let mut s = 0.0;
     let mut term_factor = 1.0_f64;
-    for n in 0_usize.. {
-        let t = term_factor * inc_gamma_q(m + n as f64, y);
+    let max_terms = iteration_cap(MAX_SMALL_X_TERMS);
+    for n in 0..max_terms {
+        let t = term_factor * inc_gamma_q(m + n as f64, y, FAMILY)?;
         s += t;
         // s stays 0 while the leading Q(m+n, y) underflow; testing then would stop
         // the sum before it reaches its terms of largest magnitude
         if s > 0.0 && t <= f64::EPSILON * s {
-            break;
+            return Ok((-x).exp() * s);
         }
         term_factor *= x / (n as f64 + 1.0);
-        if n > 5000 {
-            break;
+        // Every later term is zero, as for x = 0 or once x^n/n! underflows.
+        if term_factor == 0.0 {
+            return Ok((-x).exp() * s);
         }
     }
-    (-x).exp() * s
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 /// Asymptotic for large ξ = 2√(xy) with M² < 2ξ  (section 4.1).
-fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
+fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> Result<f64, SpecialError> {
     let delta = y.sqrt() - x.sqrt();
     let sigma = delta * delta / xi;
     let rho0 = (y / x).sqrt();
@@ -234,14 +274,14 @@ fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
             (PI / sigma).sqrt() - 2.0 * xi.sqrt()
         }
     } else {
-        (PI / sigma).sqrt() * erfc_real(delta.abs())
+        (PI / sigma).sqrt() * erfc_real(delta.abs())?
     };
 
     let mut big_phi = phi;
     let mut big_psi = if (rho0 - 1.0).abs() < f64::EPSILON {
         0.5
     } else {
-        (rho0.powf(m - 0.5) / 2.0 * erfc_real(delta.abs())).copysign(rho0 - 1.0)
+        (rho0.powf(m - 0.5) / 2.0 * erfc_real(delta.abs())?).copysign(rho0 - 1.0)
     };
 
     let mut s = if x > y { 1.0 } else { 0.0 };
@@ -250,11 +290,13 @@ fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
     let mut a_lo = 1.0_f64; // A_n(μ−1), starting from A_0 = 1
     let mut a_hi = 1.0_f64; // A_n(μ)
 
-    for n in 1_i32..=500 {
+    let max_terms = iteration_cap(MAX_LARGE_XI_TERMS);
+    for n in 1..=max_terms {
         s += big_psi;
         if big_psi.abs() <= f64::EPSILON * s.abs() {
-            break;
+            return Ok(s.max(0.0));
         }
+        let n = n as i32;
         rho_t = -rho_t;
         ef_cur /= xi;
         big_phi = (ef_cur - sigma * big_phi) / (n as f64 - 0.5);
@@ -262,38 +304,37 @@ fn marcum_q_large_xy(m: f64, x: f64, y: f64, xi: f64) -> f64 {
         a_hi *= a_ratio(n, m);
         big_psi = rho_t * (a_lo - a_hi / rho0) * big_phi;
     }
-
-    s.max(0.0)
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 /// Recurrence (eq. 14) — stable when y is near the expected range.
-fn marcum_q_recurrence(m: f64, x: f64, y: f64, xi: f64) -> f64 {
+fn marcum_q_recurrence(m: f64, x: f64, y: f64, xi: f64) -> Result<f64, SpecialError> {
     let root = (y / x).sqrt();
     let mu_start = m - (m - (2.0 * xi).sqrt() + 1.0).ceil();
     let mut mu = mu_start;
-    let mut qm1 = marcum_q_modified(mu - 1.0, x, y);
-    let mut q0 = marcum_q_modified(mu, x, y);
+    let mut qm1 = marcum_q_modified(mu - 1.0, x, y)?;
+    let mut q0 = marcum_q_modified(mu, x, y)?;
 
     while mu < m - f64::EPSILON * m {
-        let cm = root * bessel_i_ratio(mu, xi);
+        let cm = root * bessel_i_ratio(mu, xi)?;
         let q1 = (1.0 + cm) * q0 - cm * qm1;
         qm1 = q0;
         q0 = q1;
         mu += 1.0;
     }
-    q0
+    Ok(q0)
 }
 
 /// Centered Poisson-gamma mixture for large M.
-fn marcum_q_large_m(m: f64, x: f64, y: f64) -> f64 {
+fn marcum_q_large_m(m: f64, x: f64, y: f64) -> Result<f64, SpecialError> {
     let mode = x.floor() as usize;
-    let mut sum = inc_gamma_q(m + mode as f64, y);
+    let mut sum = inc_gamma_q(m + mode as f64, y, FAMILY)?;
     let mut weights = 1.0;
 
     let mut weight = 1.0;
     for n in (1..=mode).rev() {
         weight *= n as f64 / x;
-        sum += weight * inc_gamma_q(m + (n - 1) as f64, y);
+        sum += weight * inc_gamma_q(m + (n - 1) as f64, y, FAMILY)?;
         weights += weight;
         let ratio = (n - 1) as f64 / x;
         if weight * ratio <= f64::EPSILON * weights * (1.0 - ratio) {
@@ -301,19 +342,20 @@ fn marcum_q_large_m(m: f64, x: f64, y: f64) -> f64 {
         }
     }
 
+    // The weights x^n/n! decrease once n > x, so this loop ends.
     weight = 1.0;
     let mut n = mode;
     loop {
         n += 1;
         weight *= x / n as f64;
-        sum += weight * inc_gamma_q(m + n as f64, y);
+        sum += weight * inc_gamma_q(m + n as f64, y, FAMILY)?;
         weights += weight;
         let ratio = x / (n + 1) as f64;
         if weight * ratio <= f64::EPSILON * weights * (1.0 - ratio) {
             break;
         }
     }
-    sum / weights
+    Ok(sum / weights)
 }
 
 // 4-point Gauss-Legendre nodes/weights on [−1,1] (Abramowitz & Stegun table 25.4).
@@ -357,22 +399,22 @@ fn marcum_q_quadrature(m: f64, x: f64, y: f64, xi: f64) -> f64 {
 
 // ─── Core dispatch ────────────────────────────────────────────────────────────
 
-fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
+fn marcum_q_modified(m: f64, x: f64, y: f64) -> Result<f64, SpecialError> {
     if y == 0.0 {
         // Q_μ(a, 0) = 1; the quadrature branch would divide by y here.
-        return 1.0;
+        return Ok(1.0);
     }
     let xi = 2.0 * (x * y).sqrt();
     let (f1, f2) = f1_f2(x, m);
 
     let mut qv = if x < 30.0 {
-        marcum_q_small_x(m, x, y)
+        marcum_q_small_x(m, x, y)?
     } else if xi > 30.0 && m * m < 2.0 * xi {
-        marcum_q_large_xy(m, x, y, xi)
+        marcum_q_large_xy(m, x, y, xi)?
     } else if f1 < y && y < f2 && m < 135.0 {
-        marcum_q_recurrence(m, x, y, xi)
+        marcum_q_recurrence(m, x, y, xi)?
     } else if f1 < y && y < f2 {
-        marcum_q_large_m(m, x, y)
+        marcum_q_large_m(m, x, y)?
     } else {
         marcum_q_quadrature(m, x / m, y / m, xi / m)
     };
@@ -380,7 +422,7 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
     if qv > 1.0 && qv < 1.0 + f64::EPSILON {
         qv = 1.0;
     }
-    qv
+    Ok(qv)
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -407,8 +449,7 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
 ///
 /// Reference: <https://arxiv.org/pdf/1311.0681v1>
 ///
-/// # Panics
-/// Panics if μ < 0.5, a < 0, or b < 0.
+/// Returns NaN unless μ ≥ 0.5, a ≥ 0 and b ≥ 0.
 ///
 /// # Examples
 ///
@@ -423,15 +464,62 @@ fn marcum_q_modified(m: f64, x: f64, y: f64) -> f64 {
 /// assert!((marcum_q(1.0, 0.0, b) - (-b * b / 2.0).exp()).abs() < 1e-10);
 /// ```
 pub fn marcum_q(mu: f64, a: f64, b: f64) -> f64 {
-    assert!(mu >= 0.5, "μ must be ≥ 0.5, got {mu}");
-    assert!(a >= 0.0, "a must be ≥ 0, got {a}");
-    assert!(b >= 0.0, "b must be ≥ 0, got {b}");
+    marcum_q_checked(mu, a, b).unwrap_or(f64::NAN)
+}
+
+/// [`marcum_q`], reporting a numerical failure instead of returning NaN.
+///
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if a series or continued fraction reaches
+/// its cap (see the module documentation).
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{marcum_q, marcum_q_checked};
+///
+/// assert_eq!(marcum_q_checked(2.5, 1.0, 3.0), Ok(marcum_q(2.5, 1.0, 3.0)));
+/// ```
+pub fn marcum_q_checked(mu: f64, a: f64, b: f64) -> Result<f64, SpecialError> {
+    if !(mu >= 0.5 && mu.is_finite() && a >= 0.0 && b >= 0.0) {
+        return Ok(f64::NAN);
+    }
     marcum_q_modified(mu, a * a / 2.0, b * b / 2.0)
 }
 
 /// Standard Marcum Q-function of order one.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{marcum_q, marcum_q_order_one};
+///
+/// // Q_1(0, b) = exp(−b²/2)
+/// let b = 1.5_f64;
+/// assert!((marcum_q_order_one(0.0, b) - (-b * b / 2.0).exp()).abs() < 1e-15);
+/// assert_eq!(marcum_q_order_one(1.0, 2.0), marcum_q(1.0, 1.0, 2.0));
+/// ```
 pub fn marcum_q_order_one(a: f64, b: f64) -> f64 {
     marcum_q(1.0, a, b)
+}
+
+/// [`marcum_q_order_one`], reporting a numerical failure instead of returning
+/// NaN.
+///
+/// # Errors
+///
+/// As for [`marcum_q_checked`].
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{marcum_q_order_one, marcum_q_order_one_checked};
+///
+/// assert_eq!(marcum_q_order_one_checked(1.0, 2.0), Ok(marcum_q_order_one(1.0, 2.0)));
+/// ```
+pub fn marcum_q_order_one_checked(a: f64, b: f64) -> Result<f64, SpecialError> {
+    marcum_q_checked(1.0, a, b)
 }
 
 /// Derivative ∂Q_M(a,b)/∂b of the Marcum Q-function (integer order M).
@@ -443,31 +531,82 @@ pub fn marcum_q_order_one(a: f64, b: f64) -> f64 {
 /// Computed in a numerically stable form using the scaled Bessel function
 /// exp(−ab) · I_{M−1}(ab) to avoid overflow for large arguments.
 ///
-/// # Panics
-/// Panics if M < 1 or a = 0.
+/// Returns NaN unless a > 0 and b ≥ 0.
 ///
 /// # Examples
 ///
 /// ```
 /// use few_special_functions::marcum_q::dq_db;
+/// use std::num::NonZeroU32;
 ///
 /// // dQ/db is always ≤ 0 (Q is non-increasing in b)
-/// assert!(dq_db(1, 1.0, 1.0) <= 0.0);
+/// assert!(dq_db(NonZeroU32::MIN, 1.0, 1.0) <= 0.0);
 /// ```
-pub fn dq_db(m: u32, a: f64, b: f64) -> f64 {
-    assert!(m >= 1, "M must be ≥ 1, got {m}");
-    assert!(a != 0.0, "a must be nonzero");
+pub fn dq_db(m: NonZeroU32, a: f64, b: f64) -> f64 {
+    dq_db_checked(m, a, b).unwrap_or(f64::NAN)
+}
+
+/// [`dq_db`], reporting a numerical failure instead of returning NaN.
+///
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if the series for `e^{−x} I_{M−1}(x)`
+/// reaches its cap.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{dq_db, dq_db_checked};
+/// use std::num::NonZeroU32;
+///
+/// let m = NonZeroU32::new(2).expect("2 is nonzero");
+/// assert_eq!(dq_db_checked(m, 1.0, 2.0), Ok(dq_db(m, 1.0, 2.0)));
+/// ```
+pub fn dq_db_checked(m: NonZeroU32, a: f64, b: f64) -> Result<f64, SpecialError> {
+    if !(a > 0.0 && b >= 0.0) {
+        return Ok(f64::NAN);
+    }
+    let m = m.get();
     let n = m as usize - 1;
     let ab = a * b;
     // dQ/db = −b^M/a^{M−1} · exp(−(a−b)²/2) · [exp(−ab)·I_{M−1}(ab)]
     let log_coeff = m as f64 * b.ln() - (m as f64 - 1.0) * a.ln();
-    let scaled = bessel_i_scaled(n, ab);
-    -(log_coeff.exp() * (-(a - b).powi(2) / 2.0).exp() * scaled)
+    let scaled = bessel_i_scaled(n, ab)?;
+    Ok(-(log_coeff.exp() * (-(a - b).powi(2) / 2.0).exp() * scaled))
 }
 
 /// Derivative with respect to `b` of the order-one Marcum Q-function.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{dq_db_order_one, marcum_q_order_one};
+///
+/// // Agrees with a central difference of Q_1 in b.
+/// let (a, b, h) = (1.0, 2.0, 1e-5);
+/// let slope = (marcum_q_order_one(a, b + h) - marcum_q_order_one(a, b - h)) / (2.0 * h);
+/// assert!((dq_db_order_one(a, b) - slope).abs() < 1e-9);
+/// ```
 pub fn dq_db_order_one(a: f64, b: f64) -> f64 {
-    dq_db(1, a, b)
+    dq_db(NonZeroU32::MIN, a, b)
+}
+
+/// [`dq_db_order_one`], reporting a numerical failure instead of returning
+/// NaN.
+///
+/// # Errors
+///
+/// As for [`dq_db_checked`].
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::marcum_q::{dq_db_order_one, dq_db_order_one_checked};
+///
+/// assert_eq!(dq_db_order_one_checked(1.0, 2.0), Ok(dq_db_order_one(1.0, 2.0)));
+/// ```
+pub fn dq_db_order_one_checked(a: f64, b: f64) -> Result<f64, SpecialError> {
+    dq_db_checked(NonZeroU32::MIN, a, b)
 }
 
 #[cfg(test)]
@@ -499,11 +638,15 @@ mod tests {
     #[test]
     fn erfc_known() {
         // erfc(0) = 1, erfc(∞) = 0
-        assert!((erfc_real(0.0) - 1.0).abs() < 1e-15);
+        assert!((erfc_real(0.0).unwrap_or(f64::NAN) - 1.0).abs() < 1e-15);
         // erfc(1) ≈ 0.157299
-        assert!((erfc_real(1.0) - 0.15729920705028513).abs() < 1e-12);
+        assert!((erfc_real(1.0).unwrap_or(f64::NAN) - 0.15729920705028513).abs() < 1e-12);
         // erfc(-1) = 2 - erfc(1)
-        assert!((erfc_real(-1.0) - (2.0 - erfc_real(1.0))).abs() < 1e-15);
+        assert!(
+            (erfc_real(-1.0).unwrap_or(f64::NAN) - (2.0 - erfc_real(1.0).unwrap_or(f64::NAN)))
+                .abs()
+                < 1e-15
+        );
     }
 
     #[test]
@@ -523,14 +666,14 @@ mod tests {
             (20.0, 5.39586561160790086e-176),
         ];
         for (x, want) in refs {
-            let got = erfc_real(x);
+            let got = erfc_real(x).unwrap_or(f64::NAN);
             let rel = (got - want).abs() / want;
             assert!(
                 rel < 1e-11,
                 "erfc({x}): got {got:.17e}, want {want:.17e}, rel {rel:.2e}"
             );
             // erfc(−x) = 2 − erfc(x)
-            assert!((erfc_real(-x) - (2.0 - got)).abs() <= 4.0 * f64::EPSILON);
+            assert!((erfc_real(-x).unwrap_or(f64::NAN) - (2.0 - got)).abs() <= 4.0 * f64::EPSILON);
         }
     }
 
@@ -552,7 +695,7 @@ mod tests {
     #[test]
     fn bessel_i_scaled_known() {
         // exp(-x)·I_0(x): at x=1 ≈ 0.46575
-        let v = bessel_i_scaled(0, 1.0);
+        let v = bessel_i_scaled(0, 1.0).unwrap_or(f64::NAN);
         assert!((v - 0.46575960759364743).abs() < 1e-10, "got {v}");
     }
 
@@ -561,5 +704,34 @@ mod tests {
         assert!((marcum_q(1.0, 0.2, 0.6) - 0.838249985438908).abs() < 1e-9);
         assert!((marcum_q(5.0, 0.2, 0.6) - 0.999998670306184).abs() < 1e-9);
         assert!((marcum_q(1.0, 1.2, 1.6) - 0.501536568390858).abs() < 1e-9);
+    }
+
+    #[test]
+    fn iteration_caps_report_no_convergence() {
+        use crate::error::with_iteration_cap;
+        let expected = Some(SpecialError::no_convergence(FAMILY, 1));
+        with_iteration_cap(1, || {
+            // a²/2 = 2 < 30 takes the series in Q(μ + n, y), whose terms come
+            // from Q(a, x); a²/2 = 50 with b²/2 = 60 the large-ξ expansion.
+            for (a, b) in [(2.0, 3.0), (10.0, 60.0_f64.sqrt() * 2.0_f64.sqrt())] {
+                assert_eq!(marcum_q_checked(2.0, a, b).err(), expected, "a = {a}");
+                assert!(marcum_q(2.0, a, b).is_nan(), "a = {a}");
+            }
+            assert_eq!(dq_db_order_one_checked(1.0, 2.0).err(), expected);
+            assert!(dq_db_order_one(1.0, 2.0).is_nan());
+        });
+        // The Bessel-ratio continued fraction of the recurrence in μ.
+        assert_eq!(
+            with_iteration_cap(1, || bessel_i_ratio(2.0, 40.0).err()),
+            expected
+        );
+    }
+
+    #[test]
+    fn arguments_outside_the_domain_give_nan() {
+        for (mu, a, b) in [(0.3, 1.0, 1.0), (1.0, -1.0, 1.0), (1.0, 1.0, -1.0)] {
+            assert_eq!(marcum_q_checked(mu, a, b).map(f64::is_nan), Ok(true));
+        }
+        assert_eq!(dq_db_order_one_checked(0.0, 1.0).map(f64::is_nan), Ok(true));
     }
 }

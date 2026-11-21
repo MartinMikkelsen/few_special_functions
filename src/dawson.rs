@@ -1,15 +1,27 @@
 //! Dawson's integral D(x) = e^{-x²} ∫₀ˣ e^{t²} dt.
 //!
-//! Adapted from the algorithms in:
-//! M. R. Zaghloul, *Numerical Algorithms* **95**, 1291-1308 (2023).
-//! <https://doi.org/10.1007/s11075-023-01608-8>
-//! Source: <https://github.com/mofrehzaghloul/Dawson> (MIT)
+//! Ported from `src/Dawson.jl` of FewSpecialFunctions.jl
+//! (<https://github.com/MartinMikkelsen/FewSpecialFunctions.jl>, MIT license),
+//! commit e787df3b36a238dfc2df3a4e14a603613cabbce0.
+//! The Julia code is adapted from M. R. Zaghloul, *Numerical Algorithms* **95**,
+//! 1291-1308 (2023), <https://doi.org/10.1007/s11075-023-01608-8>, and its
+//! reference code <https://github.com/mofrehzaghloul/Dawson> (MIT license; the
+//! notice is in `LICENSES/Dawson-MIT.txt`).
 //!
-//! This is a faithful `f64` port of the Julia implementation in
-//! `FewSpecialFunctions.jl` (`src/Dawson.jl`).
+//! # Iteration cap and tolerance
+//!
+//! The two continued fractions are evaluated at increasing order, and the
+//! Maclaurin series term by term, until successive values agree to a relative
+//! `4 ε`. Each stops with [`SpecialError::NoConvergence`] after 10 000 orders or
+//! terms; no `f64` argument comes close to that cap.
 
-/// Maximum number of continued-fraction / series iterations before giving up.
-const DAWSON_MAXITER: usize = 10_000;
+use crate::SpecialError;
+use crate::error::iteration_cap;
+
+const FAMILY: &str = "dawson";
+
+/// Cap on the order of either continued fraction and on the series terms.
+const MAX_ITERATIONS: usize = 10_000;
 
 /// Convergence tolerance: 4·eps.
 fn dawson_tolerance() -> f64 {
@@ -44,33 +56,35 @@ fn dawson_small_cf_order(m: usize, x: f64) -> f64 {
 }
 
 /// Small-argument continued fraction, converged over the approximant order `m`.
-pub(crate) fn dawson_small_cf(x: f64) -> f64 {
+fn dawson_small_cf(x: f64) -> Result<f64, SpecialError> {
+    let max_iterations = iteration_cap(MAX_ITERATIONS);
     let tol = dawson_tolerance();
     let mut previous = dawson_small_cf_order(1, x);
-    for m in 2..=DAWSON_MAXITER {
+    for m in 2..=max_iterations {
         let current = dawson_small_cf_order(m, x);
         if (current - previous).abs() <= tol * 1.0_f64.max(current.abs()) {
-            return current;
+            return Ok(current);
         }
         previous = current;
     }
-    panic!("Dawson small continued fraction failed to converge for x = {x}");
+    Err(SpecialError::no_convergence(FAMILY, max_iterations))
 }
 
 /// Middle-region Maclaurin series D(x) = x·e^{-x²}·Σ … .
-pub(crate) fn dawson_middle_series(x: f64) -> f64 {
+fn dawson_middle_series(x: f64) -> Result<f64, SpecialError> {
+    let max_iterations = iteration_cap(MAX_ITERATIONS);
     let x2 = x * x;
     let tol = dawson_tolerance();
     let mut sum = 1.0;
     let mut term = 1.0;
-    for n in 0..DAWSON_MAXITER {
+    for n in 0..max_iterations {
         term *= x2 * (2 * n + 1) as f64 / ((2 * n + 3) * (n + 1)) as f64;
         sum += term;
         if term.abs() <= tol * sum.abs() {
-            return x * (-x2).exp() * sum;
+            return Ok(x * (-x2).exp() * sum);
         }
     }
-    panic!("Dawson middle series failed to converge for x = {x}");
+    Err(SpecialError::no_convergence(FAMILY, max_iterations))
 }
 
 /// One order-`m` approximant of the large-argument continued fraction.
@@ -84,22 +98,23 @@ fn dawson_large_cf_order(m: usize, x: f64) -> f64 {
 }
 
 /// Large-argument continued fraction, converged over the approximant order `m`.
-pub(crate) fn dawson_large_cf(x: f64) -> f64 {
+fn dawson_large_cf(x: f64) -> Result<f64, SpecialError> {
+    let max_iterations = iteration_cap(MAX_ITERATIONS);
     let tol = dawson_tolerance();
     let mut previous = dawson_large_cf_order(1, x);
-    for m in 2..=DAWSON_MAXITER {
+    for m in 2..=max_iterations {
         let current = dawson_large_cf_order(m, x);
         let scale = current.abs();
         if scale == 0.0 {
             if (current - previous).abs() <= tol {
-                return current;
+                return Ok(current);
             }
         } else if (current - previous).abs() <= tol * scale {
-            return current;
+            return Ok(current);
         }
         previous = current;
     }
-    panic!("Dawson large continued fraction failed to converge for x = {x}");
+    Err(SpecialError::no_convergence(FAMILY, max_iterations))
 }
 
 /// Dawson's integral
@@ -126,47 +141,85 @@ pub(crate) fn dawson_large_cf(x: f64) -> f64 {
 /// assert_eq!(dawson(-2.0), -dawson(2.0));
 /// ```
 pub fn dawson(x: f64) -> f64 {
+    dawson_checked(x).unwrap_or(f64::NAN)
+}
+
+/// [`dawson`], reporting a numerical failure instead of returning NaN.
+///
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if a continued fraction or the series
+/// reaches its iteration cap (see the module documentation).
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::dawson::{dawson, dawson_checked};
+///
+/// assert_eq!(dawson_checked(1.0), Ok(dawson(1.0)));
+/// ```
+pub fn dawson_checked(x: f64) -> Result<f64, SpecialError> {
     if x.is_nan() {
-        return x;
+        return Ok(x);
     }
     if x == 0.0 {
-        return x; // preserves the sign of a signed zero
+        return Ok(x); // preserves the sign of a signed zero
     }
     if x.is_infinite() {
-        return 1.0 / (x + x); // D(±∞) = ±0
+        return Ok(1.0 / (x + x)); // D(±∞) = ±0
     }
 
     let ax = x.abs();
     let value = if ax <= dawson_small_start() {
-        dawson_small_cf(ax)
+        dawson_small_cf(ax)?
     } else if ax <= dawson_large_start() {
-        dawson_middle_series(ax)
+        dawson_middle_series(ax)?
     } else if ax >= dawson_asymptotic_start() {
         1.0 / (ax + ax)
     } else {
-        dawson_large_cf(ax)
+        dawson_large_cf(ax)?
     };
-    value.copysign(x)
+    Ok(value.copysign(x))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::with_iteration_cap;
+
+    fn close(value: Result<f64, SpecialError>, expected: f64) -> bool {
+        value.is_ok_and(|v| (v - expected).abs() <= 2e-14 * expected)
+    }
 
     // These exercise the individual numerical regions directly, mirroring the
     // "Dawson numerical regions" testset in the Julia suite.
     #[test]
     fn small_cf_region() {
-        assert!((dawson_small_cf(0.1) - 0.09933599239785286).abs() <= 2e-14 * 0.1);
+        assert!(close(dawson_small_cf(0.1), 0.09933599239785286));
     }
 
     #[test]
     fn middle_series_region() {
-        assert!((dawson_middle_series(2.0) - 0.30134038892379197).abs() <= 2e-14 * 0.30134);
+        assert!(close(dawson_middle_series(2.0), 0.30134038892379197));
     }
 
     #[test]
     fn large_cf_region() {
-        assert!((dawson_large_cf(20.0) - 0.02503136792640367).abs() <= 2e-14 * 0.0250314);
+        assert!(close(dawson_large_cf(20.0), 0.02503136792640367));
+    }
+
+    #[test]
+    fn iteration_cap_reports_no_convergence() {
+        with_iteration_cap(1, || {
+            // One argument in each region that iterates.
+            for x in [1e-9, 2.0, 20.0] {
+                assert_eq!(
+                    dawson_checked(x),
+                    Err(SpecialError::no_convergence(FAMILY, 1)),
+                    "x = {x}"
+                );
+                assert!(dawson(x).is_nan(), "x = {x}");
+            }
+        });
     }
 }

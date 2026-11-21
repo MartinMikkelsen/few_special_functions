@@ -5,8 +5,9 @@
 //! for high-accuracy calculation of the Voigt function," *Journal of
 //! Quantitative Spectroscopy & Radiative Transfer* **111**, 372-375 (2010).
 //! <https://doi.org/10.1016/j.jqsrt.2009.09.005>
-//! That part is an `f64` port of the Julia implementation in
-//! `FewSpecialFunctions.jl` (`src/Voigt.jl`).
+//! That part is ported from `src/Voigt.jl` of FewSpecialFunctions.jl
+//! (<https://github.com/MartinMikkelsen/FewSpecialFunctions.jl>, MIT license),
+//! commit 7e4cc5c300548b6327daceb4d858c5a4c28651fb.
 //!
 //! For `0 < y <= 0.5`, the trapezoidal rule on a contour shifted below the
 //! real axis, written from the defining integral (DLMF section 7.19) and the
@@ -209,9 +210,10 @@ const ASYMPTOTIC_MIN_MODULUS: f64 = 100.0;
 /// Measured against mpmath (see the crate README): relative error below
 /// 2e-15.
 ///
-/// # Panics
-///
-/// Panics with a domain error when `y < 0`.
+/// Returns NaN for `y < 0`. The Fourier sum and the contour rule have a fixed
+/// number of terms, and the asymptotic series is used only for `|z| >= 100`,
+/// where its `k`-th term is smaller than the previous by `(2k − 1)/(2|z|²)`;
+/// no method can fail to converge, so there is no `*_checked` form.
 ///
 /// # Examples
 ///
@@ -225,7 +227,7 @@ const ASYMPTOTIC_MIN_MODULUS: f64 = 100.0;
 /// ```
 pub fn voigt(x: f64, y: f64) -> f64 {
     if y < 0.0 {
-        panic!("Voigt function requires y ≥ 0, got y = {y}");
+        return f64::NAN;
     }
     if y == 0.0 {
         return (-x * x).exp();

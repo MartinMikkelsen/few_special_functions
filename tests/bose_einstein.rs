@@ -35,19 +35,16 @@ fn elementary_orders_and_endpoints() {
 }
 
 #[test]
-#[should_panic]
 fn rejects_non_half_integer_order() {
-    bose_einstein_integral_norm(0.25, -1.0);
+    assert!(bose_einstein_integral_norm(0.25, -1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn rejects_positive_eta() {
-    bose_einstein_integral_norm(0.5, 0.1);
+    assert!(bose_einstein_integral_norm(0.5, 0.1).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn unnormalized_rejects_continued_orders() {
-    bose_einstein_integral(-1.0, -1.0);
+    assert!(bose_einstein_integral(-1.0, -1.0).is_nan());
 }

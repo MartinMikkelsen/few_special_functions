@@ -1,9 +1,18 @@
 #![allow(clippy::excessive_precision)]
 use few_special_functions::clausen::{
-    ci_complex, clausen, clausen_n20, clausen_with_options, f_clausen, f_n,
+    ClausenOrder, TailNodes, ci_complex, clausen, clausen_n20, clausen_with_options, f_clausen, f_n,
 };
 use num_complex::Complex;
 use std::f64::consts::PI;
+use std::num::NonZeroUsize;
+
+fn order(n: usize) -> ClausenOrder {
+    ClausenOrder::new(n).expect("Clausen order in 1..=6")
+}
+
+fn terms(m: usize) -> NonZeroUsize {
+    NonZeroUsize::new(m).expect("positive number of direct terms")
+}
 
 fn parse_data(s: &str) -> Vec<(f64, f64)> {
     s.lines()
@@ -53,24 +62,27 @@ fn cl1_data() {
         if expected.is_infinite() {
             continue;
         }
-        check(1, theta, clausen(1, theta), expected, 1e-9);
+        check(1, theta, clausen(order(1), theta), expected, 1e-9);
     }
 }
 
 #[test]
 fn cl1_singularity() {
-    assert!(clausen(1, 0.0).is_infinite());
-    assert!(clausen(1, 1e-16).is_infinite());
+    assert!(clausen(order(1), 0.0).is_infinite());
+    assert!(clausen(order(1), 1e-16).is_infinite());
 }
 
 #[test]
 fn cl1_symmetry() {
     // Even symmetry: Cl₁(-θ) = Cl₁(θ); periodicity: Cl₁(θ + 2π) = Cl₁(θ)
     for &t in &[0.5_f64, 1.0, 2.0, PI / 3.0] {
-        let v = clausen(1, t);
-        assert!((clausen(1, -t) - v).abs() < 1e-12, "symmetry failed at {t}");
+        let v = clausen(order(1), t);
         assert!(
-            (clausen(1, t + 2.0 * PI) - v).abs() < 1e-12,
+            (clausen(order(1), -t) - v).abs() < 1e-12,
+            "symmetry failed at {t}"
+        );
+        assert!(
+            (clausen(order(1), t + 2.0 * PI) - v).abs() < 1e-12,
             "periodicity failed at {t}"
         );
     }
@@ -82,16 +94,16 @@ fn cl1_symmetry() {
 fn cl2_data() {
     let data = parse_data(include_str!("test_data/Cl2.txt"));
     for (theta, expected) in data {
-        check(2, theta, clausen(2, theta), expected, 1e-12);
+        check(2, theta, clausen(order(2), theta), expected, 1e-12);
     }
 }
 
 #[test]
 fn cl2_special() {
     // Cl₂(π/2) = Catalan's constant G
-    assert!((clausen(2, PI / 2.0) - 0.9159655941772190).abs() < 1e-10);
+    assert!((clausen(order(2), PI / 2.0) - 0.9159655941772190).abs() < 1e-10);
     // Cl₂(π) = 0
-    assert!(clausen(2, PI).abs() < 1e-10);
+    assert!(clausen(order(2), PI).abs() < 1e-10);
 }
 
 // --- n = 3 ---
@@ -100,14 +112,14 @@ fn cl2_special() {
 fn cl3_data() {
     let data = parse_data(include_str!("test_data/Cl3.txt"));
     for (theta, expected) in data {
-        check(3, theta, clausen(3, theta), expected, 1e-12);
+        check(3, theta, clausen(order(3), theta), expected, 1e-12);
     }
 }
 
 #[test]
 fn cl3_at_zero() {
     // Cl₃(0) = ζ(3) (Apéry's constant)
-    assert!((clausen(3, 0.0) - 1.2020569031595942854).abs() < 1e-10);
+    assert!((clausen(order(3), 0.0) - 1.2020569031595942854).abs() < 1e-10);
 }
 
 // --- n = 4 ---
@@ -116,7 +128,7 @@ fn cl3_at_zero() {
 fn cl4_data() {
     let data = parse_data(include_str!("test_data/Cl4.txt"));
     for (theta, expected) in data {
-        check(4, theta, clausen(4, theta), expected, 1e-12);
+        check(4, theta, clausen(order(4), theta), expected, 1e-12);
     }
 }
 
@@ -126,14 +138,14 @@ fn cl4_data() {
 fn cl5_data() {
     let data = parse_data(include_str!("test_data/Cl5.txt"));
     for (theta, expected) in data {
-        check(5, theta, clausen(5, theta), expected, 1e-12);
+        check(5, theta, clausen(order(5), theta), expected, 1e-12);
     }
 }
 
 #[test]
 fn cl5_at_zero() {
     // Cl₅(0) = ζ(5)
-    assert!((clausen(5, 0.0) - 1.0369277551433699341).abs() < 1e-10);
+    assert!((clausen(order(5), 0.0) - 1.0369277551433699341).abs() < 1e-10);
 }
 
 // --- n = 6 ---
@@ -142,7 +154,7 @@ fn cl5_at_zero() {
 fn cl6_data() {
     let data = parse_data(include_str!("test_data/Cl6.txt"));
     for (theta, expected) in data {
-        check(6, theta, clausen(6, theta), expected, 1e-12);
+        check(6, theta, clausen(order(6), theta), expected, 1e-12);
     }
 }
 
@@ -155,7 +167,7 @@ fn cl6_data() {
 fn cl_data_n20() {
     for (n, raw) in DATA {
         for (theta, expected) in parse_data(raw) {
-            check_rel(n, theta, clausen_n20(n, theta), expected, 1e-11);
+            check_rel(n, theta, clausen_n20(order(n), theta), expected, 1e-11);
         }
     }
 }
@@ -167,7 +179,7 @@ fn n10_and_n20_agree() {
     for n in 2..=6 {
         for k in 1..=1000 {
             let theta = k as f64 * 2.0 * PI / 1001.0;
-            let (a, b) = (clausen(n, theta), clausen_n20(n, theta));
+            let (a, b) = (clausen(order(n), theta), clausen_n20(order(n), theta));
             assert!(
                 (a - b).abs() <= 1e-12 * a.abs().max(1e-2),
                 "Cl_{n}({theta:.6}): N=10 gives {a:.15e}, N=20 gives {b:.15e}"
@@ -186,15 +198,18 @@ fn julia_public_helpers_are_available() {
     assert!((f_n(3, 2, 0.7) - 1.4_f64.cos() / 8.0).abs() < 1e-15);
 
     let z = Complex::new(2.0, 0.5);
-    assert!((f_clausen(1, z, 0.7) - ci_complex(z * 0.7)).norm() < 1e-14);
+    assert!((f_clausen(order(1), z, 0.7) - ci_complex(z * 0.7)).norm() < 1e-14);
 }
 
 #[test]
 fn julia_clausen_options_are_available() {
     let theta = std::f64::consts::PI / 3.0;
-    assert_eq!(clausen_with_options(2, theta, 10, 20), clausen(2, theta));
     assert_eq!(
-        clausen_with_options(2, theta, 20, 20),
-        clausen_n20(2, theta)
+        clausen_with_options(order(2), theta, TailNodes::Ten, terms(20)),
+        clausen(order(2), theta)
+    );
+    assert_eq!(
+        clausen_with_options(order(2), theta, TailNodes::Twenty, terms(20)),
+        clausen_n20(order(2), theta)
     );
 }
