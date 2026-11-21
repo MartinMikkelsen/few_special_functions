@@ -1,22 +1,57 @@
+//! Fresnel integrals C, S and E for real and complex arguments.
+//!
+//! Ported from `src/Fresnel.jl` of FewSpecialFunctions.jl
+//! (<https://github.com/MartinMikkelsen/FewSpecialFunctions.jl>, MIT license),
+//! commit b909e7b22696e942762f800ddad34a70d5b9d51d.
+//! The Julia code is adapted from M. R. Zaghloul and L. Alrawas,
+//! *Numerical Algorithms* **96**, 489-506 (2024),
+//! <https://doi.org/10.1007/s11075-023-01654-2>, and its reference code
+//! <https://github.com/mofrehzaghloul/Fresnel_Integrals> (MIT license; the
+//! notice is in `LICENSES/Fresnel_Integrals-MIT.txt`). The complex error
+//! function, which the Julia code takes from SpecialFunctions.jl, is written
+//! for this crate from its power series and asymptotic expansion (DLMF 7.6.1
+//! and 7.12.1).
+//!
+//! # Iteration caps and tolerances
+//!
+//! The power series of C and S (used for `|z|² <= 6.9`) stops when a term
+//! falls below `4 ε max(1, |C|, |S|)`, with a cap of 10 000 terms; the power
+//! series of erf (used for `|z| < 4`) stops when a term falls below `1e-17` of
+//! the sum, with a cap of 80 terms. Reaching a cap gives
+//! [`SpecialError::NoConvergence`] from the `*_checked` functions and NaN from
+//! the others. The asymptotic series are truncated at their smallest term.
+
+use crate::SpecialError;
+use crate::error::iteration_cap;
 use num_complex::Complex;
 use std::f64::consts::{FRAC_2_SQRT_PI, PI};
+
+const FAMILY: &str = "fresnel";
+/// Cap on the terms of the power series of C and S.
+const MAX_FRESNEL_TERMS: usize = 10_000;
+/// Cap on the terms of the power series of erf.
+const MAX_ERF_TERMS: usize = 80;
+const NAN: Complex<f64> = Complex {
+    re: f64::NAN,
+    im: f64::NAN,
+};
 
 /// Complex error function erf(z).
 ///
 /// Uses the Taylor series for |z| < 4 and the asymptotic expansion of
 /// erfc(z) = 1 - erf(z) for |z| ≥ 4.
-fn cerf(z: Complex<f64>) -> Complex<f64> {
+fn cerf(z: Complex<f64>) -> Result<Complex<f64>, SpecialError> {
     if z.re < 0.0 {
-        return -cerf(-z);
+        return Ok(-cerf(-z)?);
     }
     if z.norm() < 4.0 {
         cerf_series(z)
     } else {
-        Complex::new(1.0, 0.0) - cerfc_asymptotic(z)
+        Ok(Complex::new(1.0, 0.0) - cerfc_asymptotic(z))
     }
 }
 
-fn fresnel_series(z: Complex<f64>) -> (Complex<f64>, Complex<f64>) {
+fn fresnel_series(z: Complex<f64>) -> Result<(Complex<f64>, Complex<f64>), SpecialError> {
     let u = (PI / 2.0) * z * z;
     let u2 = u * u;
     let mut c = z;
@@ -24,7 +59,8 @@ fn fresnel_series(z: Complex<f64>) -> (Complex<f64>, Complex<f64>) {
     let mut c_term = c;
     let mut s_term = s;
 
-    for k in 1..=10_000 {
+    let max_terms = iteration_cap(MAX_FRESNEL_TERMS);
+    for k in 1..=max_terms {
         let k = k as f64;
         c_term *= -((4.0 * k - 3.0) * u2) / (2.0 * k * (2.0 * k - 1.0) * (4.0 * k + 1.0));
         s_term *= -((4.0 * k - 1.0) * u2) / (2.0 * k * (2.0 * k + 1.0) * (4.0 * k + 3.0));
@@ -33,10 +69,10 @@ fn fresnel_series(z: Complex<f64>) -> (Complex<f64>, Complex<f64>) {
         if c_term.norm().max(s_term.norm())
             <= 4.0 * f64::EPSILON * 1.0_f64.max(c.norm()).max(s.norm())
         {
-            break;
+            return Ok((c, s));
         }
     }
-    (c, s)
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 fn fresnel_asymptotic_auxiliary(z: Complex<f64>, offset: f64) -> Complex<f64> {
@@ -72,39 +108,43 @@ fn fresnel_asymptotic(z: Complex<f64>) -> (Complex<f64>, Complex<f64>) {
     (c, s)
 }
 
-fn fresnel_real_pair(x: f64) -> (f64, f64) {
+fn fresnel_real_pair(x: f64) -> Result<(f64, f64), SpecialError> {
+    if x.is_nan() {
+        return Ok((x, x));
+    }
     let ax = x.abs();
     let (c, s) = if ax * ax <= 6.9 {
-        let (c, s) = fresnel_series(Complex::new(ax, 0.0));
+        let (c, s) = fresnel_series(Complex::new(ax, 0.0))?;
         (c.re, s.re)
     } else {
         let asymptotic_start = 5.0_f64.max((2.0 * (1.0 / f64::EPSILON).ln() / PI).sqrt() + 1.0);
         if ax < asymptotic_start {
             let scale = PI.sqrt() / 2.0;
-            let e = Complex::new(0.5, 0.5) * cerf(Complex::new(scale * ax, -scale * ax));
+            let e = Complex::new(0.5, 0.5) * cerf(Complex::new(scale * ax, -scale * ax))?;
             (e.re, e.im)
         } else {
             let (c, s) = fresnel_asymptotic(Complex::new(ax, 0.0));
             (c.re, s.re)
         }
     };
-    if x < 0.0 { (-c, -s) } else { (c, s) }
+    Ok(if x < 0.0 { (-c, -s) } else { (c, s) })
 }
 
 /// Taylor series: erf(z) = (2/√π) Σ_{n=0}^∞ (-1)ⁿ z^{2n+1} / (n! (2n+1))
-fn cerf_series(z: Complex<f64>) -> Complex<f64> {
+fn cerf_series(z: Complex<f64>) -> Result<Complex<f64>, SpecialError> {
     let z2 = z * z;
     let mut term = z;
     let mut sum = z;
-    for n in 1_usize..=80 {
+    let max_terms = iteration_cap(MAX_ERF_TERMS);
+    for n in 1..=max_terms {
         term *= -z2 / n as f64;
         let contrib = term / (2 * n + 1) as f64;
         sum += contrib;
         if contrib.norm() < 1e-17 * sum.norm() {
-            break;
+            return Ok(sum * FRAC_2_SQRT_PI);
         }
     }
-    sum * FRAC_2_SQRT_PI
+    Err(SpecialError::no_convergence(FAMILY, max_terms))
 }
 
 /// Asymptotic expansion of erfc(z) for large |z|, |arg(z)| < 3π/4.
@@ -169,39 +209,103 @@ fn cerfc_asymptotic(z: Complex<f64>) -> Complex<f64> {
 /// assert!((s - 0.5).abs() < 0.1);
 /// ```
 pub fn fresnel(x: f64) -> (f64, f64, Complex<f64>) {
-    let (c, s) = fresnel_real_pair(x);
+    fresnel_checked(x).unwrap_or((f64::NAN, f64::NAN, NAN))
+}
+
+/// [`fresnel`], reporting a numerical failure instead of returning NaN.
+///
+/// [`fresnel_c`], [`fresnel_s`] and [`fresnel_e`] are its components.
+///
+/// # Errors
+///
+/// [`SpecialError::NoConvergence`] if a power series reaches its cap (see the
+/// module documentation).
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel, fresnel_checked};
+///
+/// assert_eq!(fresnel_checked(1.5), Ok(fresnel(1.5)));
+/// ```
+pub fn fresnel_checked(x: f64) -> Result<(f64, f64, Complex<f64>), SpecialError> {
+    let (c, s) = fresnel_real_pair(x)?;
     let e = Complex::new(c, s);
-    (e.re, e.im, e)
+    Ok((e.re, e.im, e))
 }
 
 /// Complex Fresnel cosine and sine integrals and their well-conditioned sum.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::fresnel_complex;
+/// use num_complex::Complex64;
+///
+/// let (c, s, e) = fresnel_complex(Complex64::new(1.0, 1.0));
+/// // mpmath: C(1 + i) = 2.5557937781024390 (1 + i), S(1 + i) = 2.0618882191948405 (−1 + i)
+/// let c_ref = Complex64::new(2.555_793_778_102_439, 2.555_793_778_102_439);
+/// let s_ref = Complex64::new(-2.061_888_219_194_840_5, 2.061_888_219_194_840_5);
+/// assert!((c - c_ref).norm() < 2e-11 * c_ref.norm());
+/// assert!((s - s_ref).norm() < 2e-11 * s_ref.norm());
+/// assert!((e - (c + Complex64::i() * s)).norm() < 2e-11 * c_ref.norm());
+/// ```
 pub fn fresnel_complex(z: Complex<f64>) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
+    fresnel_complex_checked(z).unwrap_or((NAN, NAN, NAN))
+}
+
+/// [`fresnel_complex`], reporting a numerical failure instead of returning
+/// NaN.
+///
+/// [`fresnel_c_complex`], [`fresnel_s_complex`] and [`fresnel_e_complex`] are
+/// its components.
+///
+/// # Errors
+///
+/// As for [`fresnel_checked`].
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel_complex, fresnel_complex_checked};
+/// use num_complex::Complex64;
+///
+/// let z = Complex64::new(1.0, 0.5);
+/// assert_eq!(fresnel_complex_checked(z), Ok(fresnel_complex(z)));
+/// ```
+#[allow(clippy::type_complexity)] // (C, S, E), as returned by `fresnel_complex`
+pub fn fresnel_complex_checked(
+    z: Complex<f64>,
+) -> Result<(Complex<f64>, Complex<f64>, Complex<f64>), SpecialError> {
+    if z.is_nan() {
+        return Ok((NAN, NAN, NAN));
+    }
     if z.im == 0.0 {
-        let (c, s, e) = fresnel(z.re);
-        return (Complex::new(c, 0.0), Complex::new(s, 0.0), e);
+        let (c, s, e) = fresnel_checked(z.re)?;
+        return Ok((Complex::new(c, 0.0), Complex::new(s, 0.0), e));
     }
     if z.re == 0.0 {
-        let (c, s, _) = fresnel(z.im);
-        return (
+        let (c, s, _) = fresnel_checked(z.im)?;
+        return Ok((
             Complex::new(0.0, c),
             Complex::new(0.0, -s),
             Complex::new(s, c),
-        );
+        ));
     }
     if z.re < 0.0 {
-        let (c, s, e) = fresnel_complex(-z);
-        return (-c, -s, -e);
+        let (c, s, e) = fresnel_complex_checked(-z)?;
+        return Ok((-c, -s, -e));
     }
 
     let scale = PI.sqrt() / 2.0;
-    let e = Complex::new(0.5, 0.5) * cerf(Complex::new(scale, -scale) * z);
+    let e = Complex::new(0.5, 0.5) * cerf(Complex::new(scale, -scale) * z)?;
     let (c, s) = if z.norm_sqr() <= 6.9 {
-        fresnel_series(z)
+        fresnel_series(z)?
     } else {
-        let e_minus = Complex::new(0.5, -0.5) * cerf(Complex::new(scale, scale) * z);
+        let e_minus = Complex::new(0.5, -0.5) * cerf(Complex::new(scale, scale) * z)?;
         ((e + e_minus) / 2.0, (e - e_minus) / Complex::new(0.0, 2.0))
     };
-    (c, s, e)
+    Ok((c, s, e))
 }
 
 /// Fresnel cosine integral C(x) = ∫₀ˣ cos(π/2 · t²) dt.
@@ -239,21 +343,68 @@ pub fn fresnel_s(x: f64) -> f64 {
 }
 
 /// Fresnel combination `C(x) + i S(x)` for real `x`.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel, fresnel_e};
+///
+/// let (c, s, _) = fresnel(1.5);
+/// let e = fresnel_e(1.5);
+/// assert_eq!((e.re, e.im), (c, s));
+///
+/// // E(x) → (1 + i)/2 as x → ∞.
+/// let far = fresnel_e(1e6);
+/// assert!((far.re - 0.5).abs() < 1e-6 && (far.im - 0.5).abs() < 1e-6);
+/// ```
 pub fn fresnel_e(x: f64) -> Complex<f64> {
     fresnel(x).2
 }
 
 /// Complex Fresnel cosine integral.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel_c, fresnel_c_complex};
+/// use num_complex::Complex64;
+///
+/// // C(iy) = i C(y)
+/// let y = 0.8;
+/// let v = fresnel_c_complex(Complex64::new(0.0, y));
+/// assert!((v - Complex64::new(0.0, fresnel_c(y))).norm() < 1e-15);
+/// ```
 pub fn fresnel_c_complex(z: Complex<f64>) -> Complex<f64> {
     fresnel_complex(z).0
 }
 
 /// Complex Fresnel sine integral.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel_s, fresnel_s_complex};
+/// use num_complex::Complex64;
+///
+/// // S(iy) = −i S(y)
+/// let y = 0.8;
+/// let v = fresnel_s_complex(Complex64::new(0.0, y));
+/// assert!((v - Complex64::new(0.0, -fresnel_s(y))).norm() < 1e-15);
+/// ```
 pub fn fresnel_s_complex(z: Complex<f64>) -> Complex<f64> {
     fresnel_complex(z).1
 }
 
 /// Well-conditioned complex combination `C(z) + i S(z)`.
+///
+/// # Examples
+///
+/// ```
+/// use few_special_functions::fresnel::{fresnel_e, fresnel_e_complex};
+/// use num_complex::Complex64;
+///
+/// assert_eq!(fresnel_e_complex(Complex64::new(2.0, 0.0)), fresnel_e(2.0));
+/// ```
 pub fn fresnel_e_complex(z: Complex<f64>) -> Complex<f64> {
     fresnel_complex(z).2
 }
@@ -265,7 +416,7 @@ mod tests {
     #[test]
     fn cerf_known() {
         // erf(1) ≈ 0.8427007929497149
-        let e = cerf(Complex::new(1.0, 0.0));
+        let e = cerf(Complex::new(1.0, 0.0)).unwrap_or(NAN);
         assert!((e.re - 0.8427007929497149).abs() < 1e-12);
         assert!(e.im.abs() < 1e-15);
     }
@@ -298,5 +449,26 @@ mod tests {
             assert!((cp + cn).abs() < 1e-12, "C symmetry failed at {x}");
             assert!((sp + sn).abs() < 1e-12, "S symmetry failed at {x}");
         }
+    }
+
+    #[test]
+    fn iteration_caps_report_no_convergence() {
+        let expected = Some(SpecialError::no_convergence(FAMILY, 1));
+        crate::error::with_iteration_cap(1, || {
+            // x = 1 takes the Fresnel series and x = 2 the erf series.
+            for x in [1.0, 2.0] {
+                assert_eq!(fresnel_checked(x).err(), expected, "x = {x}");
+                assert!(fresnel_c(x).is_nan() && fresnel_s(x).is_nan(), "x = {x}");
+            }
+            let z = Complex::new(1.0, 0.5);
+            assert_eq!(fresnel_complex_checked(z).err(), expected);
+            assert!(fresnel_c_complex(z).is_nan());
+        });
+    }
+
+    #[test]
+    fn nan_arguments_are_values() {
+        assert!(fresnel_checked(f64::NAN).is_ok_and(|(c, _, _)| c.is_nan()));
+        assert!(fresnel_complex_checked(NAN).is_ok_and(|(c, _, _)| c.is_nan()));
     }
 }

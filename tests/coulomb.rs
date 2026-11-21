@@ -192,7 +192,6 @@ fn finite_difference_helpers_are_consistent() {
 }
 
 #[test]
-#[should_panic]
 fn gamow_rejects_other_orders() {
-    gamow_w(0.3, 1.0);
+    assert!(gamow_w(0.3, 1.0).is_nan());
 }

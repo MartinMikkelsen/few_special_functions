@@ -1,4 +1,4 @@
-use few_special_functions::clausen::clausen;
+use few_special_functions::clausen::{ClausenOrder, clausen};
 use plotters::prelude::*;
 use std::f64::consts::PI;
 
@@ -8,26 +8,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "-".repeat(28));
     for i in 0..=12 {
         let theta = i as f64 * PI / 6.0;
-        let val = clausen(2, theta);
+        let val = clausen(ClausenOrder::Two, theta);
         println!("{:>10.4}  {:>16.12}", i as f64 / 6.0, val);
     }
     println!();
     println!(
         "Cl₂(π/2) = Catalan's constant G ≈ {:.15}",
-        clausen(2, PI / 2.0)
+        clausen(ClausenOrder::Two, PI / 2.0)
     );
-    println!("Cl₂(π/3) ≈ {:.15}", clausen(2, PI / 3.0));
-    println!("Cl₂(π)   = 0 (exact): {}", clausen(2, PI));
+    println!("Cl₂(π/3) ≈ {:.15}", clausen(ClausenOrder::Two, PI / 3.0));
+    println!("Cl₂(π)   = 0 (exact): {}", clausen(ClausenOrder::Two, PI));
     println!();
-    println!("Cl₃(0)   = ζ(3) ≈ {:.15}", clausen(3, 0.0));
-    println!("Cl₅(0)   = ζ(5) ≈ {:.15}", clausen(5, 0.0));
+    println!(
+        "Cl₃(0)   = ζ(3) ≈ {:.15}",
+        clausen(ClausenOrder::Three, 0.0)
+    );
+    println!("Cl₅(0)   = ζ(5) ≈ {:.15}", clausen(ClausenOrder::Five, 0.0));
 
     // Plot orders 1–4; Cl_1 diverges at 0 and 2π so start slightly inside
-    let orders: &[(usize, &str, RGBColor)] = &[
-        (1, "Cl₁(θ)", RED),
-        (2, "Cl₂(θ)", BLUE),
-        (3, "Cl₃(θ)", GREEN),
-        (4, "Cl₄(θ)", full_palette::ORANGE),
+    let orders: &[(ClausenOrder, &str, RGBColor)] = &[
+        (ClausenOrder::One, "Cl₁(θ)", RED),
+        (ClausenOrder::Two, "Cl₂(θ)", BLUE),
+        (ClausenOrder::Three, "Cl₃(θ)", GREEN),
+        (ClausenOrder::Four, "Cl₄(θ)", full_palette::ORANGE),
     ];
 
     let root = SVGBackend::new("clausen.svg", (800, 500)).into_drawing_area();

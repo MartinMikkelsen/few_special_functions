@@ -74,7 +74,6 @@ fn standard_d_wrappers_match_u() {
 }
 
 #[test]
-#[should_panic]
 fn scaled_rejects_negative_x() {
-    u_scaled(0.0, -1.0);
+    assert!(u_scaled(0.0, -1.0).is_nan());
 }

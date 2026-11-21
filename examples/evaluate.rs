@@ -6,7 +6,10 @@
 ///   cargo run --example evaluate -- debye <n> <beta> <x>
 ///   cargo run --example evaluate -- fresnel <x>
 use few_special_functions::{
-    clausen::clausen, debye::debye_function, fermi_dirac::fermi_dirac_integral, fresnel::fresnel,
+    clausen::{ClausenOrder, clausen},
+    debye::debye_function,
+    fermi_dirac::fermi_dirac_integral,
+    fresnel::fresnel,
 };
 
 fn main() {
@@ -14,9 +17,10 @@ fn main() {
 
     match args.as_slice() {
         [func, rest @ ..] if func == "clausen" => {
-            let n: usize = rest[0].parse().expect("n must be an integer 1..6");
+            let n: usize = rest[0].parse().expect("n must be an integer 1..=6");
+            let order = ClausenOrder::new(n).expect("n must be an integer 1..=6");
             let theta: f64 = rest[1].parse().expect("theta must be a float");
-            println!("Cl_{n}({theta}) = {}", clausen(n, theta));
+            println!("Cl_{n}({theta}) = {}", clausen(order, theta));
         }
         [func, rest @ ..] if func == "fermi_dirac" => {
             let j: f64 = rest[0].parse().expect("j must be a float");

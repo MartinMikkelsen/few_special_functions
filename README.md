@@ -35,7 +35,7 @@ The minimum supported Rust version is 1.96.
 ## Examples
 
 ```rust
-use few_special_functions::clausen::clausen;
+use few_special_functions::clausen::{ClausenOrder, clausen};
 use few_special_functions::fermi_dirac::fermi_dirac_integral;
 use few_special_functions::fresnel::fresnel_c;
 use few_special_functions::marcum_q::marcum_q;
@@ -45,7 +45,7 @@ fn main() {
     println!("{}", fermi_dirac_integral(1.5, 1.0)); // 2.661682624732004
 
     // Clausen function Cl_2(π/2) = Catalan's constant
-    println!("{}", clausen(2, std::f64::consts::FRAC_PI_2)); // 0.9159655941772190
+    println!("{}", clausen(ClausenOrder::Two, std::f64::consts::FRAC_PI_2)); // 0.9159655941772190
 
     // Fresnel cosine integral C(1.0)
     println!("{}", fresnel_c(1.0)); // 0.7798934003...
@@ -64,6 +64,18 @@ cargo run --example clausen      # → clausen.svg
 cargo run --example debye        # → debye.svg
 cargo run --example evaluate -- clausen 2 1.5707963
 ```
+
+## Errors
+
+Arguments outside a function's domain give NaN. Functions whose algorithm
+iterates also have a `*_checked` form that returns
+`Result<_, SpecialError>`; it reports `SpecialError::NoConvergence` when an
+iteration reaches its cap, and the plain form returns NaN in that case. Each
+module documents its caps and tolerances. Parameters that select an algorithm
+or a finite set of orders are typed (`clausen::ClausenOrder`,
+`clausen::TailNodes`), and counts that must be positive are `NonZeroUsize` or
+`NonZeroU32` (`marcum_q::dq_db`, `debye::debye_function_tol`), so invalid ones
+do not compile.
 
 ## SciPy counterparts
 
@@ -128,3 +140,15 @@ function, its error on the same points is shown for comparison.
 | `coulomb::normalization` | ℓ ∈ [0, 5], η ∈ [−5, 10] | 6.2e-14 | — |
 | `coulomb::phase`, `coulomb::aux_g` | 4 points | 2.2e-14 | — |
 | `coulomb::psi`, `coulomb::i` | 4 points | 6.6e-9 (central difference in ℓ) | — |
+
+## Provenance and license
+
+Each source file states at the top where its code came from. Most modules
+are ported from
+[FewSpecialFunctions.jl](https://github.com/MartinMikkelsen/FewSpecialFunctions.jl)
+at a named commit, and the rest of the code is written for this crate from
+DLMF and the cited papers. No code is taken from GSL or Numerical Recipes.
+
+The crate is MIT-licensed (`LICENSE`). The `dawson` and `fresnel` modules
+are adapted from M. R. Zaghloul's MIT-licensed reference implementations;
+their notices, and the FewSpecialFunctions.jl notice, are in `LICENSES/`.

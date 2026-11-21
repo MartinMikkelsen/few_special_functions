@@ -2,6 +2,7 @@ mod helpers;
 
 use few_special_functions::marcum_q::{dq_db, dq_db_order_one, marcum_q, marcum_q_order_one};
 use helpers::check;
+use std::num::NonZeroU32;
 
 // --- Spot checks from published tables ---
 
@@ -150,33 +151,30 @@ fn data_file() {
 #[test]
 fn dq_db_sign_and_range() {
     for &b in &[0.5_f64, 1.0, 2.0, 3.0] {
-        let d = dq_db(1, 1.0, b);
+        let d = dq_db(NonZeroU32::MIN, 1.0, b);
         assert!(d < 0.0, "dQ/db should be negative at b={b}, got {d}");
     }
 }
 
 #[test]
-#[should_panic]
 fn invalid_mu() {
-    marcum_q(0.3, 1.0, 1.0);
+    assert!(marcum_q(0.3, 1.0, 1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn invalid_a() {
-    marcum_q(1.0, -1.0, 1.0);
+    assert!(marcum_q(1.0, -1.0, 1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn invalid_b() {
-    marcum_q(1.0, 1.0, -1.0);
+    assert!(marcum_q(1.0, 1.0, -1.0).is_nan());
 }
 
 #[test]
 fn order_one_convenience_functions_match_general_api() {
     assert_eq!(marcum_q_order_one(1.2, 1.6), marcum_q(1.0, 1.2, 1.6));
-    assert_eq!(dq_db_order_one(1.2, 1.6), dq_db(1, 1.2, 1.6));
+    assert_eq!(dq_db_order_one(1.2, 1.6), dq_db(NonZeroU32::MIN, 1.2, 1.6));
 }
 
 #[test]
@@ -227,7 +225,7 @@ fn recurrence_against_dq_db() {
         ] {
             let q = marcum_q(m as f64, a, b);
             let gap = marcum_q(m as f64 + 1.0, a, b) - q;
-            let want = -dq_db(m + 1, a, b) / b;
+            let want = -dq_db(NonZeroU32::MIN.saturating_add(m), a, b) / b;
             if q < 1e-300 {
                 continue;
             }

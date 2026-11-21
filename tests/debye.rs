@@ -128,27 +128,23 @@ fn generalized_values_match_julia() {
 }
 
 #[test]
-#[should_panic]
 fn beta_must_be_less_than_n_plus_one() {
-    debye_function(2.0, 3.0, 1.0);
+    assert!(debye_function(2.0, 3.0, 1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn invalid_n() {
-    debye_function(-1.0, 1.0, 1.0);
+    assert!(debye_function(-1.0, 1.0, 1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn invalid_beta() {
-    debye_function(1.0, -1.0, 1.0);
+    assert!(debye_function(1.0, -1.0, 1.0).is_nan());
 }
 
 #[test]
-#[should_panic]
 fn invalid_x() {
-    debye_function(1.0, 1.0, -1.0);
+    assert!(debye_function(1.0, 1.0, -1.0).is_nan());
 }
 
 // --- Full data file from DebyeFunctions.jl comparison ---

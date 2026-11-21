@@ -18,6 +18,16 @@
 //! | Dawson integral D(x) | [`dawson`] | [`dawson::dawson`] |
 //! | Voigt function K(x, y) | [`voigt`] | [`voigt::voigt`] |
 //!
+//! ## Errors
+//!
+//! Arguments outside a function's domain give NaN. Functions whose algorithm
+//! iterates also have a `*_checked` form returning `Result<_, SpecialError>`:
+//! it reports [`SpecialError::NoConvergence`] when an iteration reaches its
+//! cap, and the plain form returns NaN in that case. Each module documents its
+//! caps and tolerances. Parameters that select an algorithm or a finite set of
+//! orders are typed, for example [`clausen::ClausenOrder`], and counts that
+//! must be positive are `NonZeroUsize` or `NonZeroU32`.
+//!
 //! ## SciPy counterparts
 //!
 //! | This crate | SciPy |
@@ -41,6 +51,14 @@
 //! stated tolerance on the relative error; `tests/mpmath_reference.rs` holds
 //! the checks. The README lists the measured errors.
 //!
+//! ## Provenance
+//!
+//! Each module's documentation states where its code came from: a port of
+//! FewSpecialFunctions.jl at a named commit, or code written for this crate
+//! from DLMF and the cited papers. The `dawson` and `fresnel` modules are
+//! adapted from MIT-licensed reference code by M. R. Zaghloul; the upstream
+//! notices ship in the crate's `LICENSES/` directory.
+//!
 // Coefficients are taken verbatim from published papers and intentionally
 // exceed f64 precision so the source value is self-documenting.
 #![allow(clippy::excessive_precision)]
@@ -57,4 +75,7 @@ pub mod parabolic_cylinder;
 pub mod voigt;
 pub mod whittaker;
 
+mod error;
 mod numerics;
+
+pub use error::SpecialError;

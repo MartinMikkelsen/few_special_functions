@@ -32,7 +32,10 @@ fn clausen_functions() {
     let table = table!("clausen");
     let mut report = Report::default();
     Check::new(&table, "Cl_n(theta)", &["n", "theta"], "value", 5e-14).run(&mut report, |row| {
-        clausen::clausen(row.get("n") as usize, row.get("theta"))
+        clausen::clausen(
+            clausen::ClausenOrder::new(row.get("n") as usize).expect("order in 1..=6"),
+            row.get("theta"),
+        )
     });
     report.finish();
 }
@@ -132,7 +135,8 @@ fn marcum_q_function() {
 
     let table = table!("marcum_q_db");
     Check::new(&table, "dQ_M/db", &["m", "a", "b"], "value", 1e-13).run(&mut report, |row| {
-        marcum_q::dq_db(row.get("m") as u32, row.get("a"), row.get("b"))
+        let order = std::num::NonZeroU32::new(row.get("m") as u32);
+        order.map_or(f64::NAN, |m| marcum_q::dq_db(m, row.get("a"), row.get("b")))
     });
     report.finish();
 }

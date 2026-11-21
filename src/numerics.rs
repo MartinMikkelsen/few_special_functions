@@ -1,3 +1,20 @@
+//! Internal numerical building blocks.
+//!
+//! Written for this crate from published formulas; no code was ported.
+//!
+//! - complex log-gamma: the Lanczos approximation with the common g = 7,
+//!   nine-coefficient set, and the reflection formula (DLMF section 5.5);
+//! - digamma: recurrence and reflection (DLMF section 5.5) and the asymptotic
+//!   expansion (DLMF section 5.11);
+//! - Kummer `M`, regularized `M` and Tricomi `U`: the power series, Kummer's
+//!   transformation and the connection formula for `U` (DLMF section 13.2);
+//! - Riemann zeta for real `s`: Euler–Maclaurin summation (DLMF section 25.2)
+//!   and the functional equation (DLMF section 25.4);
+//! - upper incomplete gamma: DLMF 8.7.1 and 8.9.2;
+//! - adaptive 15-point Gauss–Kronrod quadrature.
+
+use crate::SpecialError;
+use crate::error::iteration_cap;
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
@@ -79,19 +96,50 @@ pub(crate) fn digamma_complex(z: Complex64) -> Complex64 {
                                                 + inverse_squared * (-691.0 / 32_760.0))))))
 }
 
-pub(crate) fn kummer_m(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
-    if z.re < 0.0 {
-        return z.exp() * kummer_m_series(b - a, b, -z);
-    }
-    kummer_m_series(a, b, z)
+/// Cap on the terms of the Kummer series.
+pub(crate) const MAX_KUMMER_TERMS: usize = 100_000;
+
+/// Whether every component of the arguments is finite.
+fn all_finite(values: &[Complex64]) -> bool {
+    values
+        .iter()
+        .all(|value| value.re.is_finite() && value.im.is_finite())
 }
 
-fn kummer_m_series(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
+const COMPLEX_NAN: Complex64 = Complex64::new(f64::NAN, f64::NAN);
+
+/// Kummer's function `M(a, b, z)` by its power series (DLMF 13.2.2), after
+/// Kummer's transformation (DLMF 13.2.39) when `Re z < 0`. The series stops
+/// when a term falls below `4 ε max(1, |sum|)`; reaching
+/// [`MAX_KUMMER_TERMS`] reports [`SpecialError::NoConvergence`] for `family`.
+/// Arguments that are not finite give NaN.
+pub(crate) fn kummer_m(
+    a: Complex64,
+    b: Complex64,
+    z: Complex64,
+    family: &'static str,
+) -> Result<Complex64, SpecialError> {
+    if !all_finite(&[a, b, z]) {
+        return Ok(COMPLEX_NAN);
+    }
+    if z.re < 0.0 {
+        return Ok(z.exp() * kummer_m_series(b - a, b, -z, family)?);
+    }
+    kummer_m_series(a, b, z, family)
+}
+
+fn kummer_m_series(
+    a: Complex64,
+    b: Complex64,
+    z: Complex64,
+    family: &'static str,
+) -> Result<Complex64, SpecialError> {
     let mut sum = Complex64::new(1.0, 0.0);
     let mut compensation = Complex64::new(0.0, 0.0);
     let mut term = Complex64::new(1.0, 0.0);
 
-    for index in 1..=100_000 {
+    let max_terms = iteration_cap(MAX_KUMMER_TERMS);
+    for index in 1..=max_terms {
         let previous = (index - 1) as f64;
         term *= (a + previous) * z / ((b + previous) * index as f64);
 
@@ -100,10 +148,10 @@ fn kummer_m_series(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
         compensation = (next - sum) - corrected;
         sum = next;
         if term.norm() <= 4.0 * f64::EPSILON * sum.norm().max(1.0) {
-            return sum;
+            return Ok(sum);
         }
     }
-    panic!("Kummer M series did not converge")
+    Err(SpecialError::no_convergence(family, max_terms))
 }
 
 pub(crate) fn reciprocal_gamma(z: Complex64) -> Complex64 {
@@ -116,15 +164,27 @@ pub(crate) fn reciprocal_gamma(z: Complex64) -> Complex64 {
     }
 }
 
-pub(crate) fn kummer_m_regularized(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
+/// `M(a, b, z) / Γ(b)` by its power series (DLMF 13.2.4), with the same
+/// transformation, tolerance, cap and treatment of non-finite arguments as
+/// [`kummer_m`].
+pub(crate) fn kummer_m_regularized(
+    a: Complex64,
+    b: Complex64,
+    z: Complex64,
+    family: &'static str,
+) -> Result<Complex64, SpecialError> {
+    if !all_finite(&[a, b, z]) {
+        return Ok(COMPLEX_NAN);
+    }
     if z.re < 0.0 {
-        return z.exp() * kummer_m_regularized(b - a, b, -z);
+        return Ok(z.exp() * kummer_m_regularized(b - a, b, -z, family)?);
     }
 
     let mut coefficient = Complex64::new(1.0, 0.0);
     let mut sum = reciprocal_gamma(b);
     let mut compensation = Complex64::new(0.0, 0.0);
-    for index in 1..=100_000 {
+    let max_terms = iteration_cap(MAX_KUMMER_TERMS);
+    for index in 1..=max_terms {
         let previous = (index - 1) as f64;
         coefficient *= (a + previous) * z / index as f64;
         let term = coefficient * reciprocal_gamma(b + index as f64);
@@ -133,21 +193,35 @@ pub(crate) fn kummer_m_regularized(a: Complex64, b: Complex64, z: Complex64) -> 
         compensation = (next - sum) - corrected;
         sum = next;
         if index >= 8 && term.norm() <= 4.0 * f64::EPSILON * sum.norm().max(1.0) {
-            return sum;
+            return Ok(sum);
         }
     }
-    panic!("regularized Kummer M series did not converge")
+    Err(SpecialError::no_convergence(family, max_terms))
 }
 
-pub(crate) fn tricomi_u(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
+/// Tricomi's function `U(a, b, z)` from Kummer's function (DLMF 13.2.42).
+///
+/// The connection formula divides by `sin(πb)`, so its relative error grows
+/// like `ε / |sin(πb)|`. Where `|sin(πb)| < 1e-7` it is replaced by the mean
+/// of the values at `b ± 1e-5`, whose relative error is of order `1e-10`.
+/// Arguments that are not finite give NaN.
+pub(crate) fn tricomi_u(
+    a: Complex64,
+    b: Complex64,
+    z: Complex64,
+    family: &'static str,
+) -> Result<Complex64, SpecialError> {
+    if !all_finite(&[a, b, z]) {
+        return Ok(COMPLEX_NAN);
+    }
     let sin_pi_b = (Complex64::new(PI, 0.0) * b).sin();
     if sin_pi_b.norm() < 1e-7 {
         let step = Complex64::new(1e-5, 0.0);
-        return 0.5 * (tricomi_u(a, b - step, z) + tricomi_u(a, b + step, z));
+        return Ok(0.5 * (tricomi_u(a, b - step, z, family)? + tricomi_u(a, b + step, z, family)?));
     }
 
-    Complex64::new(PI, 0.0) / sin_pi_b
-        * (kummer_m(a, b, z)
+    Ok(Complex64::new(PI, 0.0) / sin_pi_b
+        * (kummer_m(a, b, z, family)?
             * reciprocal_gamma(Complex64::new(1.0, 0.0) + a - b)
             * reciprocal_gamma(b)
             - z.powc(Complex64::new(1.0, 0.0) - b)
@@ -155,13 +229,17 @@ pub(crate) fn tricomi_u(a: Complex64, b: Complex64, z: Complex64) -> Complex64 {
                     Complex64::new(1.0, 0.0) + a - b,
                     Complex64::new(2.0, 0.0) - b,
                     z,
-                )
+                    family,
+                )?
                 * reciprocal_gamma(a)
-                * reciprocal_gamma(Complex64::new(2.0, 0.0) - b))
+                * reciprocal_gamma(Complex64::new(2.0, 0.0) - b)))
 }
 
+/// Riemann zeta function for real `s`; NaN at the pole `s = 1`.
 pub(crate) fn zeta_real(s: f64) -> f64 {
-    assert!(s != 1.0, "zeta has a pole at s = 1");
+    if s == 1.0 {
+        return f64::NAN;
+    }
     if s < 0.0 && s == s.round() && (s as i64) % 2 == 0 {
         return 0.0;
     }
@@ -201,6 +279,72 @@ pub(crate) fn zeta_real(s: f64) -> f64 {
     }
     sum
 }
+
+/// Regularized upper incomplete gamma function `Q(a, x) = Γ(a, x) / Γ(a)`
+/// for `a > 0` and `x >= 0`.
+///
+/// For `x < a + 1` this is `1 - P(a, x)` with the power series
+/// `P(a, x) = x^a e^{-x} Σ_{k≥0} x^k / Γ(a + k + 1)` (DLMF 8.7.1). Otherwise
+/// it is Legendre's continued fraction (DLMF 8.9.2),
+/// `Γ(a, x) = x^a e^{-x} / (x + (1 - a)/(1 + 1/(x + (2 - a)/(1 + 2/(x + …)))))`,
+/// which keeps full relative accuracy far into the tail.
+pub(crate) fn inc_gamma_q(a: f64, x: f64, family: &'static str) -> Result<f64, SpecialError> {
+    debug_assert!(a > 0.0 && x >= 0.0);
+    if x == 0.0 {
+        return Ok(1.0);
+    }
+    let log_prefactor = a * x.ln() - x - libm::lgamma(a);
+    if x < a + 1.0 {
+        // Γ(a) Σ x^k / Γ(a + k + 1) = Σ x^k / (a (a + 1) ⋯ (a + k)); every
+        // ratio x / (a + k) with k ≥ 1 is below one.
+        let mut term = 1.0 / a;
+        let mut sum = term;
+        let mut k = 0.0;
+        while term > 0.5 * f64::EPSILON * sum {
+            k += 1.0;
+            term *= x / (a + k);
+            sum += term;
+        }
+        Ok(1.0 - log_prefactor.exp() * sum)
+    } else {
+        Ok(log_prefactor.exp() / legendre_fraction(a, x, family)?)
+    }
+}
+
+/// Denominator `x + (1 - a)/(1 + 1/(x + (2 - a)/(1 + 2/(x + …))))` of DLMF 8.9.2
+/// for `x >= a + 1`.
+///
+/// With `T_k = x + (k - a) / (1 + k / T_{k+1})` the denominator is `T_1`.
+/// The recursion runs downward from `T_{n+1} = x`, and the depth `n` is doubled
+/// until two depths agree, up to [`MAX_FRACTION_DEPTH`]. Every `T_k` exceeds
+/// `x - a + 1 >= 2`, so no division is by zero.
+fn legendre_fraction(a: f64, x: f64, family: &'static str) -> Result<f64, SpecialError> {
+    let max_depth = iteration_cap(MAX_FRACTION_DEPTH);
+    let evaluate = |depth: usize| {
+        let mut tail = x;
+        for k in (1..=depth).rev() {
+            let k = k as f64;
+            tail = x + (k - a) / (1.0 + k / tail);
+        }
+        tail
+    };
+    let mut depth = 16;
+    let mut previous = evaluate(depth);
+    loop {
+        if depth >= max_depth {
+            return Err(SpecialError::no_convergence(family, max_depth));
+        }
+        depth *= 2;
+        let next = evaluate(depth);
+        if (next - previous).abs() <= 4.0 * f64::EPSILON * next.abs() {
+            return Ok(next);
+        }
+        previous = next;
+    }
+}
+
+/// Cap on the depth of the incomplete-gamma continued fraction.
+const MAX_FRACTION_DEPTH: usize = 1 << 24;
 
 const KRONROD_NODES: [f64; 8] = [
     0.991_455_371_120_812_6,
@@ -250,19 +394,27 @@ fn gauss_kronrod_15(function: &impl Fn(f64) -> f64, lower: f64, upper: f64) -> (
     (kronrod, (kronrod - gauss).abs())
 }
 
+/// `∫ function` over `[lower, upper]` by adaptive 15-point Gauss–Kronrod
+/// quadrature to an absolute `tolerance`, with the error budget halved on each
+/// bisection and a floor of `32 ε |estimate|` per subinterval. Visiting more
+/// than `max_intervals` subintervals reports [`SpecialError::NoConvergence`]
+/// for `family`.
 pub(crate) fn integrate(
     function: impl Fn(f64) -> f64,
     lower: f64,
     upper: f64,
     tolerance: f64,
     max_intervals: usize,
-) -> Result<f64, &'static str> {
+    family: &'static str,
+) -> Result<f64, SpecialError> {
     if lower == upper {
         return Ok(0.0);
     }
     if upper < lower {
-        return integrate(function, upper, lower, tolerance, max_intervals).map(|value| -value);
+        return integrate(function, upper, lower, tolerance, max_intervals, family)
+            .map(|value| -value);
     }
+    let max_intervals = iteration_cap(max_intervals);
 
     let mut total = 0.0;
     let mut intervals = vec![(lower, upper, tolerance)];
@@ -270,7 +422,7 @@ pub(crate) fn integrate(
     while let Some((left, right, local_tolerance)) = intervals.pop() {
         visited += 1;
         if visited > max_intervals {
-            return Err("adaptive quadrature exceeded its interval limit");
+            return Err(SpecialError::no_convergence(family, max_intervals));
         }
         let (estimate, error) = gauss_kronrod_15(&function, left, right);
         let roundoff_floor = 32.0 * f64::EPSILON * estimate.abs();
@@ -306,9 +458,9 @@ mod tests {
         let a = Complex64::new(0.8, -0.3);
         let b = Complex64::new(1.7, 0.2);
         let z = Complex64::new(1.0, 2.0);
-        let m = kummer_m(a, b, z);
+        let m = kummer_m(a, b, z, "test").unwrap();
         assert!((m - Complex64::new(1.3922407178086509, 1.6474537115932955)).norm() < 2e-13);
-        let u = tricomi_u(a, b, z);
+        let u = tricomi_u(a, b, z, "test").unwrap();
         assert!((u - Complex64::new(0.36857118978677744, -0.22472938298119105)).norm() < 2e-12);
     }
 
@@ -332,10 +484,63 @@ mod tests {
 
     #[test]
     fn adaptive_quadrature_integrates_smooth_and_endpoint_peaked_functions() {
-        let polynomial = integrate(|x| x * x, 0.0, 1.0, 1e-14, 1000).unwrap();
+        let polynomial = integrate(|x| x * x, 0.0, 1.0, 1e-14, 1000, "test").unwrap();
         assert!((polynomial - 1.0 / 3.0).abs() < 2e-14);
 
-        let peaked = integrate(|x| x.sqrt(), 0.0, 1.0, 1e-13, 4000).unwrap();
+        let peaked = integrate(|x| x.sqrt(), 0.0, 1.0, 1e-13, 4000, "test").unwrap();
         assert!((peaked - 2.0 / 3.0).abs() < 2e-13);
+    }
+
+    #[test]
+    fn inc_gamma_q_relative_accuracy_in_the_tail() {
+        assert_eq!(inc_gamma_q(1.0, 0.0, "test"), Ok(1.0));
+        // Q(1, x) = e^{-x} exactly, over a range where 1 - P(1, x) rounds to zero.
+        for &x in &[0.5_f64, 1.5, 2.0, 10.0, 40.0, 100.0, 300.0, 700.0] {
+            let want = (-x).exp();
+            let rel = (inc_gamma_q(1.0, x, "test").unwrap() - want).abs() / want;
+            assert!(rel < 1e-12, "Q(1,{x}) rel {rel:.2e}");
+        }
+        // Q(½, x) = erfc(√x)
+        #[allow(clippy::excessive_precision)]
+        let half = [
+            (0.5_f64, 0.317310507862914226_f64),
+            (2.0, 0.0455002638963585105),
+            (20.0, 2.53962858946993629e-10),
+            (100.0, 2.08848758376254478e-45),
+            (400.0, 5.39586561160790086e-176),
+        ];
+        for (x, want) in half {
+            let rel = (inc_gamma_q(0.5, x, "test").unwrap() - want).abs() / want;
+            assert!(rel < 1e-11, "Q(0.5,{x}) rel {rel:.2e}");
+        }
+    }
+
+    #[test]
+    fn iteration_caps_report_no_convergence() {
+        use crate::error::with_iteration_cap;
+        let expected = Err(SpecialError::no_convergence("test", 1));
+        with_iteration_cap(1, || {
+            let (a, b, z) = (
+                Complex64::new(0.5, 0.2),
+                Complex64::new(1.5, 0.0),
+                Complex64::new(2.0, 1.0),
+            );
+            assert_eq!(kummer_m(a, b, z, "test"), expected.map(|_: ()| a));
+            assert_eq!(
+                kummer_m_regularized(a, b, z, "test"),
+                expected.map(|_: ()| a)
+            );
+            assert_eq!(tricomi_u(a, b, z, "test"), expected.map(|_: ()| a));
+            assert_eq!(
+                integrate(f64::sqrt, 0.0, 1.0, 1e-13, 4000, "test"),
+                expected.map(|_: ()| 0.0)
+            );
+        });
+        with_iteration_cap(16, || {
+            assert_eq!(
+                inc_gamma_q(0.5, 20.0, "test"),
+                Err(SpecialError::no_convergence("test", 16))
+            );
+        });
     }
 }

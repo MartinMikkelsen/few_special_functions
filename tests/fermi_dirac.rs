@@ -253,7 +253,6 @@ fn normalised() {
 }
 
 #[test]
-#[should_panic]
 fn invalid_order() {
-    fermi_dirac_integral(-1.0, 0.0);
+    assert!(fermi_dirac_integral(-1.0, 0.0).is_nan());
 }
