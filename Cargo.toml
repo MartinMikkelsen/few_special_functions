@@ -1,24 +1,19 @@
 [package]
 name = "few_special_functions"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
+rust-version = "1.96"
 description = "Special functions matching the FewSpecialFunctions.jl API"
 keywords = ["mathematics", "special-functions", "numerics", "functions"]   # max 5
+categories = ["mathematics", "science"]
 license = "MIT"
-
-[lib]
-name = "few_special_functions"
-# cdylib = Python extension module; rlib = normal Rust library + cargo test
-crate-type = ["cdylib", "rlib"]
-
-[features]
-# Activate with: maturin build  or  cargo build --features extension-module
-extension-module = ["pyo3/extension-module"]
+repository = "https://github.com/MartinMikkelsen/few_special_functions"
+documentation = "https://docs.rs/few_special_functions"
+readme = "README.md"
 
 [dependencies]
 libm = "0.2"
 num-complex = "0.4"
-pyo3 = { version = "0.28", optional = true, features = ["num-complex"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

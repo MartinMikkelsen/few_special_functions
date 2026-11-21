@@ -251,15 +251,27 @@ fn u_integral_scaled(a: f64, x: f64) -> (f64, f64) {
     (value, derivative)
 }
 
+/// `U` and `U'` at any real `x`.
+///
+/// For `x < 0` it uses DLMF 12.2.15,
+/// `U(a, -x) = -sin(πa) U(a, x) + π/Γ(1/2 + a) V(a, x)`: the power series at
+/// negative `x` cancels by up to `exp(x²/2)`.
 fn u_pair(a: f64, x: f64) -> (f64, f64) {
     check_finite(a, x);
-    if x < 0.0 && a <= -0.5 && a + 0.5 == (a + 0.5).round() {
-        let (value, derivative) = u_pair(a, -x);
-        let parity = -(PI * a).sin();
-        return (parity * value, -parity * derivative);
-    }
     if x < 0.0 {
-        return series(a, x, Kind::U, 0.0);
+        let (u, du) = u_pair(a, -x);
+        let (v, dv) = ode_pair(a, -x, Kind::V, 0.0);
+        let sine = sin_pi(a);
+        // π/Γ(1/2 + a) applied to V in logarithmic form: for large a the
+        // reciprocal underflows long before the product does.
+        let times_v = |value: f64| {
+            if value == 0.0 {
+                0.0
+            } else {
+                value.signum() * reciprocal_gamma_scaled(0.5 + a, PI.ln() + value.abs().ln())
+            }
+        };
+        return (-sine * u + times_v(v), sine * du - times_v(dv));
     }
     if x > 1.0
         && let Some(result) = u_asymptotic(a, x, false)
@@ -305,6 +317,14 @@ fn u_pair(a: f64, x: f64) -> (f64, f64) {
             order -= 1.0;
         }
         return (current_value, current_derivative);
+    }
+    if a > 0.5 && x > 0.0 {
+        let exponent = log_scale(a, x);
+        let (value, derivative) = u_integral_scaled(a, x);
+        return (
+            scale_value(-exponent, value),
+            scale_value(-exponent, derivative),
+        );
     }
     series(a, x, Kind::U, 0.0)
 }
@@ -431,26 +451,86 @@ fn w_pair(a: f64, x: f64) -> (f64, f64) {
     series(a, x, Kind::W, 0.0)
 }
 
+/// `sin(πa)`, exactly zero at integers.
+fn sin_pi(a: f64) -> f64 {
+    // r = a mod 2 in [-1, 1]; both reductions below are exact.
+    let r = a - 2.0 * (a / 2.0).round();
+    let r = if r.abs() > 0.5 { r.signum() - r } else { r };
+    (PI * r).sin()
+}
+
+/// `cos(πa)`, exactly zero at half-integers.
+fn cos_pi(a: f64) -> f64 {
+    let r = (a - 2.0 * (a / 2.0).round()).abs();
+    sin_pi(0.5 - r)
+}
+
+/// `V` and `V'` at any real `x`.
+///
+/// For `x >= 0`, `V` is the dominant solution of the equation, so it is
+/// integrated outward from 0. For `x < 0` it uses DLMF 12.2.16,
+/// `V(a, -x) = cos(πa)/Γ(1/2 - a) U(a, x) + sin(πa) V(a, x)`: integrating
+/// toward negative `x` is unstable whenever `V` is recessive there, as at
+/// integer `a`.
+fn v_pair(a: f64, x: f64) -> (f64, f64) {
+    check_finite(a, x);
+    if x >= 0.0 {
+        return ode_pair(a, x, Kind::V, 0.0);
+    }
+    let (u, du) = u_pair(a, -x);
+    let (v, dv) = ode_pair(a, -x, Kind::V, 0.0);
+    let sine = sin_pi(a);
+    // cos(πa)/Γ(1/2 - a) = cos²(πa) Γ(1/2 + a)/π, the form used for a > 0
+    // so that Γ is never evaluated near its poles; applied to U in
+    // logarithmic form because Γ(1/2 + a) overflows long before Γ(1/2 + a) U.
+    let times_u = |value: f64| {
+        if a <= 0.0 {
+            cos_pi(a) * reciprocal_gamma_scaled(0.5 - a, 0.0) * value
+        } else {
+            let cosine = cos_pi(a);
+            if cosine == 0.0 || value == 0.0 {
+                return 0.0;
+            }
+            let log_magnitude =
+                2.0 * cosine.abs().ln() + libm::lgamma(0.5 + a) - PI.ln() + value.abs().ln();
+            value.signum() * log_magnitude.exp()
+        }
+    };
+    (times_u(u) + sine * v, -(times_u(du) + sine * dv))
+}
+
 /// Parabolic-cylinder function `U(a, x)`.
+///
+/// # Accuracy
+///
+/// Measured against mpmath for `a ∈ [−10, 20]` and `x ∈ [−20, 10]` (see the
+/// crate README): relative error below 2e-13.
 pub fn u(a: f64, x: f64) -> f64 {
     u_pair(a, x).0
 }
 
 /// Argument derivative of [`u`].
+///
+/// Has the same accuracy as [`u`].
 pub fn du(a: f64, x: f64) -> f64 {
     u_pair(a, x).1
 }
 
 /// Parabolic-cylinder function `V(a, x)`.
+///
+/// # Accuracy
+///
+/// Measured against mpmath for `a ∈ [−10, 20]` and `x ∈ [−20, 10]` (see the
+/// crate README): relative error below 2e-13.
 pub fn v(a: f64, x: f64) -> f64 {
-    check_finite(a, x);
-    ode_pair(a, x, Kind::V, 0.0).0
+    v_pair(a, x).0
 }
 
 /// Argument derivative of [`v`].
+///
+/// Has the same accuracy as [`v`].
 pub fn dv(a: f64, x: f64) -> f64 {
-    check_finite(a, x);
-    ode_pair(a, x, Kind::V, 0.0).1
+    v_pair(a, x).1
 }
 
 /// Oscillatory parabolic-cylinder function `W(a, x)`.

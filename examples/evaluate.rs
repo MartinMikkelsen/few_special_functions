@@ -1,10 +1,10 @@
 /// CLI: evaluate a special function at given arguments.
 ///
 /// Usage:
-///   cargo run --bin evaluate -- clausen <n> <theta>
-///   cargo run --bin evaluate -- fermi_dirac <j> <x>
-///   cargo run --bin evaluate -- debye <n> <beta> <x>
-///   cargo run --bin evaluate -- fresnel <x>
+///   cargo run --example evaluate -- clausen <n> <theta>
+///   cargo run --example evaluate -- fermi_dirac <j> <x>
+///   cargo run --example evaluate -- debye <n> <beta> <x>
+///   cargo run --example evaluate -- fresnel <x>
 use few_special_functions::{
     clausen::clausen, debye::debye_function, fermi_dirac::fermi_dirac_integral, fresnel::fresnel,
 };

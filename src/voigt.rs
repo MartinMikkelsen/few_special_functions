@@ -1,13 +1,17 @@
 //! The real Voigt function K(x, y).
 //!
-//! Adapted from the Fourier-expansion method in:
+//! For `y > 0.5` and `|x + iy| < 100`, the Fourier-expansion method in:
 //! S. M. Abrarov, B. M. Quine, and R. K. Jagpal, "Rapidly convergent series
 //! for high-accuracy calculation of the Voigt function," *Journal of
 //! Quantitative Spectroscopy & Radiative Transfer* **111**, 372-375 (2010).
 //! <https://doi.org/10.1016/j.jqsrt.2009.09.005>
-//!
-//! This is a faithful `f64` port of the Julia implementation in
+//! That part is an `f64` port of the Julia implementation in
 //! `FewSpecialFunctions.jl` (`src/Voigt.jl`).
+//!
+//! For `0 < y <= 0.5`, the trapezoidal rule on a contour shifted below the
+//! real axis, written from the defining integral (DLMF section 7.19) and the
+//! residue theorem. For `y > 0.5` and `|x + iy| >= 100`, the asymptotic
+//! expansion of the Faddeeva function (DLMF section 7.12).
 
 use num_complex::Complex;
 use std::f64::consts::PI;
@@ -110,6 +114,82 @@ fn voigt_fourier(x: f64, y: f64) -> f64 {
     k / PI.sqrt()
 }
 
+/// K(x, y) for `y <= SHIFTED_CONTOUR_MAX_Y`, from the defining integral with
+/// its contour moved down to `Im t = -(y + POLE_CLEARANCE)`.
+///
+/// The move crosses the pole of `1/((x - t)² + y²)` at `t = x - iy`, whose
+/// residue contributes `exp(y² - x²) cos(2xy)` exactly. The remaining integrand,
+/// `(y/π) exp(-t²) / ((t - x)² + y²)` on the shifted line, carries the factor
+/// `y` explicitly, so it stays proportional to its share of K however small `y`
+/// is; this is what keeps the far wing accurate, where K is far smaller than
+/// `|w(x + iy)|`. It is analytic in a strip of half-width `POLE_CLEARANCE`
+/// about the line, so the trapezoidal rule converges geometrically in the
+/// step, and it exceeds its integral by at most `exp((y + POLE_CLEARANCE)²)`,
+/// which bounds the rounding error.
+fn voigt_shifted_contour(x: f64, y: f64) -> f64 {
+    // Discretization error about exp(-2π·POLE_CLEARANCE/STEP) relative to the
+    // integrand.
+    const STEP: f64 = 0.1;
+    // exp(shift² - s²) is below 1e-26 beyond |s| = 8.
+    const HALF_WIDTH: i32 = 80;
+    let x = x.abs();
+    let residue = (y * y - x * x).exp() * (2.0 * x * y).cos();
+    let lower_pole = Complex::new(x, -y);
+    let upper_pole = Complex::new(x, y);
+    let shift = y + POLE_CLEARANCE;
+    let mut sum = 0.0;
+    for k in -HALF_WIDTH..=HALF_WIDTH {
+        let t = Complex::new(k as f64 * STEP, -shift);
+        // Dividing by the two factors separately keeps the denominator finite
+        // for large x.
+        let term = (-t * t).exp() / (t - lower_pole) / (t - upper_pole);
+        sum += term.re;
+    }
+    residue + y / PI * STEP * sum
+}
+
+/// Distance between the shifted contour of [`voigt_shifted_contour`] and the
+/// pole it passes.
+const POLE_CLEARANCE: f64 = 0.9;
+
+/// Largest `y` handled by [`voigt_shifted_contour`]; the growth of
+/// `exp((y + POLE_CLEARANCE)²)` makes the Fourier expansion more accurate above
+/// it.
+const SHIFTED_CONTOUR_MAX_Y: f64 = 0.5;
+
+/// K(x, y) for `|x + iy| >= ASYMPTOTIC_MIN_MODULUS` and `y > 0`, from
+/// `w(z) ~ i/(√π z) Σ_k (2k-1)!! / (2z²)^k` (DLMF 7.12.1 with
+/// `w(z) = erfc(-iz) exp(-z²)`).
+///
+/// The terms are formed in complex arithmetic from `1/z`, whose imaginary part
+/// is proportional to `y`, so the real part of `w` is obtained without
+/// cancellation. The exponentially small part of `w` that the series omits is
+/// at most `exp(y² - x²)` and matters only near the real axis, where
+/// [`voigt_shifted_contour`] is used instead.
+fn voigt_asymptotic(x: f64, y: f64) -> f64 {
+    // 1/z, scaled so that |z|² cannot overflow.
+    let scale = x.abs().max(y);
+    let inverse = Complex::new(x / scale, y / scale).inv() / scale;
+    let ratio = 0.5 * inverse * inverse;
+    let mut term = Complex::new(1.0, 0.0);
+    let mut sum = term;
+    let mut k = 1.0_f64;
+    loop {
+        term *= (2.0 * k - 1.0) * ratio;
+        sum += term;
+        if term.norm() <= 0.25 * f64::EPSILON * sum.norm() {
+            break;
+        }
+        k += 1.0;
+    }
+    // Re(i u S) = -Im(u S).
+    -(inverse * sum).im / PI.sqrt()
+}
+
+/// `|z|` above which [`voigt_asymptotic`] converges to rounding within a few
+/// terms; each term is smaller than the previous by about `k/|z|²`.
+const ASYMPTOTIC_MIN_MODULUS: f64 = 100.0;
+
 /// The real Voigt function
 ///
 /// ```text
@@ -118,8 +198,16 @@ fn voigt_fourier(x: f64, y: f64) -> f64 {
 ///           π  -∞   (x - t)² + y²
 /// ```
 ///
-/// For `y == 0`, `K(x, 0) = exp(-x²)`. The implementation follows the
-/// Fourier-expansion method of Abrarov, Quine, and Jagpal.
+/// For `y == 0`, `K(x, 0) = exp(-x²)`. For `0 < y <= 0.5` the defining
+/// integral is evaluated on a contour shifted below the real axis, with the
+/// residue of the pole it passes added exactly. Otherwise, the asymptotic
+/// expansion of `w(x + iy)` is used for `|x + iy| >= 100` and the
+/// Fourier-expansion method of Abrarov, Quine, and Jagpal below that.
+///
+/// # Accuracy
+///
+/// Measured against mpmath (see the crate README): relative error below
+/// 2e-15.
 ///
 /// # Panics
 ///
@@ -141,6 +229,12 @@ pub fn voigt(x: f64, y: f64) -> f64 {
     }
     if y == 0.0 {
         return (-x * x).exp();
+    }
+    if y <= SHIFTED_CONTOUR_MAX_Y && x.is_finite() {
+        return voigt_shifted_contour(x, y);
+    }
+    if x.hypot(y) >= ASYMPTOTIC_MIN_MODULUS && x.is_finite() && y.is_finite() {
+        return voigt_asymptotic(x, y);
     }
     voigt_fourier(x, y)
 }

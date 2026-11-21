@@ -25,6 +25,14 @@ fn check_complex(kappa: Complex64, mu: Complex64, z: Complex64, is_m: bool) {
     }
 }
 
+fn check_real(kappa: f64, mu: f64, z: f64) {
+    assert!(
+        kappa.is_finite() && mu.is_finite() && z.is_finite(),
+        "Whittaker parameters must be finite"
+    );
+    assert!(z > 0.0, "real Whittaker arguments must be positive");
+}
+
 fn m_asymptotic(kappa: Complex64, mu: Complex64, z: Complex64) -> Option<Complex64> {
     let a = mu - kappa + 0.5;
     let b = 2.0 * mu + 1.0;
@@ -110,7 +118,12 @@ fn propagate_whittaker(
 }
 
 fn m_core(kappa: Complex64, mu: Complex64, z: Complex64) -> Complex64 {
-    if z.re > 0.0
+    // At a = 1/2 + mu - kappa a non-positive integer, M(a, b, z) is a
+    // polynomial and the exponentially growing asymptotic form vanishes.
+    let a = mu - kappa + 0.5;
+    let terminating = a.im == 0.0 && a.re <= 0.0 && a.re == a.re.round();
+    if !terminating
+        && z.re > 0.0
         && z.norm() > 300.0
         && let Some(value) = m_asymptotic(kappa, mu, z)
     {
@@ -218,31 +231,165 @@ fn w_core(kappa: Complex64, mu: Complex64, z: Complex64) -> Complex64 {
     }
 }
 
-fn w_real_integral(kappa: f64, mu: f64, z: f64) -> Option<f64> {
-    let a = mu - kappa + 0.5;
-    if a <= 0.0 {
-        return None;
+/// `exp(-z/2) z^kappa`, the large-`z` behavior of W, in logarithmic form.
+fn w_log_prefactor(kappa: f64, z: f64) -> f64 {
+    -z / 2.0 + kappa * z.ln()
+}
+
+/// W and W' when `kappa - mu - 1/2` is a non-negative integer `N`, with
+/// `mu >= 0`.
+///
+/// The series `W = exp(-z/2) z^kappa Σ_k (1/2+mu-kappa)_k (1/2-mu-kappa)_k / (k! (-z)^k)`
+/// then terminates after `k = N`, which is DLMF 13.18.17 written in powers of
+/// `1/z`.
+fn w_terminating(kappa: f64, mu: f64, z: f64, order: usize) -> (f64, f64) {
+    let a = 0.5 + mu - kappa;
+    let mut term = 1.0;
+    let mut value = 0.0;
+    let mut derivative = 0.0;
+    for k in 0..=order {
+        let kf = k as f64;
+        value += term;
+        // d/dz z^(kappa-k) exp(-z/2) = z^(kappa-k) exp(-z/2) ((kappa-k)/z - 1/2)
+        derivative += term * ((kappa - kf) / z - 0.5);
+        term *= -(a + kf) * (a - 2.0 * mu + kf) / ((kf + 1.0) * z);
     }
+    let prefactor = w_log_prefactor(kappa, z).exp();
+    (prefactor * value, prefactor * derivative)
+}
+
+/// The order `N` of [`w_terminating`] if `kappa - mu - 1/2` is a non-negative
+/// integer.
+fn terminating_order(kappa: f64, mu: f64) -> Option<usize> {
+    let order = kappa - mu - 0.5;
+    (order >= 0.0 && order == order.round()).then_some(order as usize)
+}
+
+/// W for `a = 1/2 + mu - kappa > 0`, from
+/// `W = exp(-z/2) z^kappa / Γ(a) ∫_0^∞ e^{-u} u^{a-1} (1 + u/z)^{mu+kappa-1/2} du`
+/// (DLMF section 13.16).
+///
+/// The integral is evaluated without the prefactor, so the quadrature
+/// tolerance is relative to an O(1) quantity; the substitution `u = v^(1/m)`,
+/// `m = min(a, 1)`, removes the `u^{a-1}` endpoint singularity.
+fn w_real_integral(kappa: f64, mu: f64, z: f64) -> f64 {
+    let a = mu - kappa + 0.5;
+    debug_assert!(a > 0.0);
     let power = mu + kappa - 0.5;
-    let normalization = -z / 2.0 + kappa * z.ln() - libm::lgamma(a);
+    let log_normalization = -libm::lgamma(a);
     let upper = (a + power.abs() + 50.0).max(60.0);
     let m = a.min(1.0);
     let kernel = |v: f64| {
         if v == 0.0 {
             return if a == m {
-                (normalization - m.ln()).exp()
+                (log_normalization - m.ln()).exp()
             } else {
                 0.0
             };
         }
         let u = v.powf(1.0 / m);
         let log_jacobian = -m.ln() + (1.0 - m) * u.ln();
-        (normalization - u + (a - 1.0) * u.ln() + power * (u / z).ln_1p() + log_jacobian).exp()
+        (log_normalization - u + (a - 1.0) * u.ln() + power * (u / z).ln_1p() + log_jacobian).exp()
     };
-    integrate(kernel, 0.0, upper.powf(m), 3e-14, 10_000).ok()
+    let quadrature = |tolerance: f64| {
+        integrate(kernel, 0.0, upper.powf(m), tolerance, 20_000).unwrap_or_else(|message| {
+            panic!("Whittaker W quadrature failed (kappa = {kappa}, mu = {mu}, z = {z}): {message}")
+        })
+    };
+    let mut integral = quadrature(1e-15);
+    // A small integral needs a tolerance relative to its own size.
+    if integral.abs() < 1.0 {
+        integral = quadrature(1e-15 * integral.abs());
+    }
+    (w_log_prefactor(kappa, z) + integral.abs().ln()).exp() * integral.signum()
+}
+
+/// W from its expression in M (DLMF 13.14.33), accepted only when its two
+/// terms cancel by less than a factor of 16.
+///
+/// The terms have Gamma-function poles at integer `2 mu`, and both grow like
+/// `exp(z/2)` while W decays, so the check rejects those cases and large `z`.
+fn w_real_connection(kappa: f64, mu: f64, z: f64) -> Option<f64> {
+    let (kappa_c, mu_c, z_c) = (
+        Complex64::from(kappa),
+        Complex64::from(mu),
+        Complex64::from(z),
+    );
+    let first = (gamma_complex(-2.0 * mu_c)
+        * reciprocal_gamma(0.5 - mu_c - kappa_c)
+        * m_core(kappa_c, mu_c, z_c))
+    .re;
+    let second = (gamma_complex(2.0 * mu_c)
+        * reciprocal_gamma(0.5 + mu_c - kappa_c)
+        * m_core(kappa_c, -mu_c, z_c))
+    .re;
+    let value = first + second;
+    (value.is_finite() && first.abs() + second.abs() <= 16.0 * value.abs()).then_some(value)
+}
+
+/// Largest `z` at which [`w_real_value`] tries [`w_real_connection`]; above it
+/// the exponential growth of the M terms makes the cancellation check fail.
+const CONNECTION_MAX_Z: f64 = 10.0;
+
+/// W for real parameters, `mu >= 0` and `z > 0`.
+fn w_real_value(kappa: f64, mu: f64, z: f64) -> f64 {
+    if let Some(order) = terminating_order(kappa, mu) {
+        return w_terminating(kappa, mu, z, order).0;
+    }
+    if let Some((value, _)) = w_asymptotic(kappa.into(), mu.into(), z.into()) {
+        return value.re;
+    }
+    if 2.0 * mu != (2.0 * mu).round()
+        && z <= CONNECTION_MAX_Z
+        && let Some(value) = w_real_connection(kappa, mu, z)
+    {
+        return value;
+    }
+    let a = 0.5 + mu - kappa;
+    if a > 0.0 {
+        return w_real_integral(kappa, mu, z);
+    }
+    // a < 0: start where a lies in (0, 2] and recur upward in kappa with
+    // W_{k+1} = (z - 2k) W_k - ((k - 1/2)² - mu²) W_{k-1} (DLMF 13.3.7 for
+    // U(a, 1 + 2mu, z) at fixed mu). W is the minimal solution as a → +∞,
+    // so decreasing a, which is increasing kappa, is the stable direction.
+    let steps = (-a).ceil() as usize;
+    let mut k = kappa - steps as f64;
+    let mut previous = w_real_integral(k - 1.0, mu, z);
+    let mut current = w_real_integral(k, mu, z);
+    for _ in 0..steps {
+        let next = (z - 2.0 * k) * current - ((k - 0.5) * (k - 0.5) - mu * mu) * previous;
+        (previous, current) = (current, next);
+        k += 1.0;
+    }
+    current
+}
+
+/// W and W' for real parameters and `z > 0`.
+fn w_real(kappa: f64, mu: f64, z: f64) -> (f64, f64) {
+    // W is even in mu.
+    let mu = mu.abs();
+    if let Some(order) = terminating_order(kappa, mu) {
+        return w_terminating(kappa, mu, z, order);
+    }
+    let value = w_real_value(kappa, mu, z);
+    // DLMF section 13.15: W' = (-1/2 + (mu + 1/2)/z) W - a W_{kappa-1/2, mu+1/2} / sqrt(z).
+    let a = 0.5 + mu - kappa;
+    let shifted = w_real_value(kappa - 0.5, mu + 0.5, z);
+    (
+        value,
+        (-0.5 + (mu + 0.5) / z) * value - a * shifted / z.sqrt(),
+    )
 }
 
 /// Whittaker M for real parameters and positive real argument.
+///
+/// # Accuracy
+///
+/// Measured against mpmath for `kappa ∈ [−5, 5]`, `mu ∈ [−1.3, 3.5]` and
+/// `z ∈ [0.01, 1000]` (see the crate README): relative error below 2e-13. The
+/// largest errors are at `z = 1000`, where a relative change of `eps` in `z`
+/// changes `M` by about `(z/2)·eps`.
 pub fn whittaker_m(kappa: f64, mu: f64, z: f64) -> f64 {
     assert!(z > 0.0, "real Whittaker arguments must be positive");
     whittaker_m_complex(kappa.into(), mu.into(), z.into()).re
@@ -255,6 +402,8 @@ pub fn whittaker_m_complex(kappa: Complex64, mu: Complex64, z: Complex64) -> Com
 }
 
 /// Argument derivative of [`whittaker_m`].
+///
+/// Measured on the same grid as [`whittaker_m`]: relative error below 3e-13.
 pub fn d_whittaker_m(kappa: f64, mu: f64, z: f64) -> f64 {
     assert!(z > 0.0, "real Whittaker arguments must be positive");
     d_whittaker_m_complex(kappa.into(), mu.into(), z.into()).re
@@ -273,26 +422,26 @@ pub fn d_whittaker_m_complex(kappa: Complex64, mu: Complex64, z: Complex64) -> C
 }
 
 /// Whittaker W for real parameters and positive real argument.
+///
+/// W is even in `mu`. Where `kappa - |mu| - 1/2` is a non-negative integer, W
+/// is a polynomial in `1/z` times `exp(-z/2) z^kappa` and is summed exactly.
+/// Otherwise it comes from the large-`z` asymptotic series where that
+/// converges; for `z <= 10`, from its expression in M when that does not
+/// cancel; and otherwise from its integral representation when
+/// `1/2 + |mu| - kappa > 0` and from the recurrence in `kappa` below that.
+///
+/// # Accuracy
+///
+/// Measured against mpmath for `kappa ∈ [−5, 5]`, `mu ∈ [−1.3, 3.5]` and
+/// `z ∈ [0.01, 1000]` (see the crate README): relative error below 1e-13.
+///
+/// # Panics
+///
+/// Panics if the arguments are not finite, if `z <= 0`, or if the quadrature
+/// of the integral representation does not converge.
 pub fn whittaker_w(kappa: f64, mu: f64, z: f64) -> f64 {
-    assert!(
-        kappa.is_finite() && mu.is_finite() && z.is_finite(),
-        "Whittaker parameters must be finite"
-    );
-    assert!(z > 0.0, "real Whittaker arguments must be positive");
-    if kappa == 0.0 && mu.abs() == 0.5 {
-        return (-z / 2.0).exp();
-    }
-    if kappa == 1.0 && mu.abs() == 0.5 {
-        return z * (-z / 2.0).exp();
-    }
-    if let Some((value, _)) = w_asymptotic(kappa.into(), mu.into(), z.into()) {
-        return value.re;
-    }
-    if let Some(value) = w_real_integral(kappa, mu, z) {
-        value
-    } else {
-        w_core(kappa.into(), mu.into(), z.into()).re
-    }
+    check_real(kappa, mu, z);
+    w_real(kappa, mu, z).0
 }
 
 /// Whittaker W on the principal complex branch.
@@ -302,22 +451,11 @@ pub fn whittaker_w_complex(kappa: Complex64, mu: Complex64, z: Complex64) -> Com
 }
 
 /// Argument derivative of [`whittaker_w`].
+///
+/// Measured on the same grid as [`whittaker_w`]: relative error below 3e-13.
 pub fn d_whittaker_w(kappa: f64, mu: f64, z: f64) -> f64 {
-    assert!(
-        kappa.is_finite() && mu.is_finite() && z.is_finite(),
-        "Whittaker parameters must be finite"
-    );
-    assert!(z > 0.0, "real Whittaker arguments must be positive");
-    if kappa == 0.0 && mu.abs() == 0.5 {
-        return -0.5 * (-z / 2.0).exp();
-    }
-    if kappa == 1.0 && mu.abs() == 0.5 {
-        return (1.0 - z / 2.0) * (-z / 2.0).exp();
-    }
-    let value = whittaker_w(kappa, mu, z);
-    let a = mu - kappa + 0.5;
-    let shifted = -a * whittaker_w(kappa - 0.5, mu + 0.5, z);
-    (-0.5 + (mu + 0.5) / z) * value + shifted / z.sqrt()
+    check_real(kappa, mu, z);
+    w_real(kappa, mu, z).1
 }
 
 /// Argument derivative of [`whittaker_w_complex`].
