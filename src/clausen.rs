@@ -1,7 +1,5 @@
 use num_complex::Complex;
-use std::f64::consts::PI;
-
-const EULER_GAMMA: f64 = 0.5772156649015328606_f64;
+use std::f64::consts::{EULER_GAMMA, PI};
 
 // Gauss rule for the Euler-Maclaurin tail weight w(t) = 1/(sqrt(t) cosh^2(pi sqrt(t)/2))
 // on (0, inf), where t = 4y^2 and y = Im(z). Sum of the weights is 4/pi.
