@@ -121,20 +121,10 @@ function, its error on the same points is shown for comparison.
 | `parabolic_cylinder::u`, `du`, `v`, `dv` | a ∈ [−10, 20], x ∈ [−20, 10] | 1.8e-13 | — |
 | `parabolic_cylinder::w`, `dw` | a ∈ [−3, 3], x ∈ [−4, 4] | 4.6e-11 | — |
 | `parabolic_cylinder_d`, `d_parabolic_cylinder_d` | ν ∈ [−3.5, 5], x ∈ [−5, 10] | 7.6e-15 | 5.8e-12 |
-| `whittaker_m`, `d_whittaker_m` | κ ∈ [−2, 3], μ ∈ [0.25, 2.3], z ∈ [0.01, 30] | 3.8e-15 | — |
-| `whittaker_w`, `d_whittaker_w` | same, except the regions below | 1.9e-11 | — |
+| `whittaker_m`, `d_whittaker_m` | κ ∈ [−5, 5], μ ∈ [−1.3, 3.5], z ∈ [0.01, 1000] | 2.9e-13 | — |
+| `whittaker_w`, `d_whittaker_w` | same | 2.5e-13 | — |
 | `whittaker_m_complex`, `whittaker_w_complex` | 6 points | 4.7e-14 | — |
 | `coulomb::f`, `coulomb::g`, `coulomb::h_plus`, `coulomb::h_minus` | ℓ ∈ {0, 0.5, 1, 2, 5, 10, 20}, η ∈ [−50, 50], ρ ∈ [1e-3, 1e3] | 4.7e-13 | — |
 | `coulomb::normalization` | ℓ ∈ [0, 5], η ∈ [−5, 10] | 6.2e-14 | — |
 | `coulomb::phase`, `coulomb::aux_g` | 4 points | 2.2e-14 | — |
 | `coulomb::psi`, `coulomb::i` | 4 points | 6.6e-9 (central difference in ℓ) | — |
-
-### Known accuracy gaps
-
-These regions are tested by `#[ignore]`d tests in `tests/mpmath_reference.rs`
-that assert a relative error of 1e-12; run them with
-`cargo test --release --test mpmath_reference -- --ignored`.
-
-| Function | Region | Max. relative error |
-|---|---|---|
-| `whittaker_w`, `d_whittaker_w` | 1/2 + μ − κ a non-positive integer, or κ < 0 with z ≥ 30 | 3.4e-7 |

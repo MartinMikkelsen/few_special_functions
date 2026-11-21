@@ -381,16 +381,45 @@ def parabolic_cylinder_tables() -> None:
 # Whittaker functions
 
 
+def whittaker_w_degenerate(kappa, mu, z):
+    """W for kappa - mu - 1/2 = N a non-negative integer (either sign of mu, as W is
+    even in mu): (-1)^N N! exp(-z/2) z^(mu+1/2) L_N^(2 mu)(z) (DLMF section 13.18).
+    Returns None for other parameters."""
+    for m in (mu, -mu):
+        n = kappa - m - mpf(1) / 2
+        if n >= 0 and n == int(n):
+            n = int(n)
+            # Explicit sum: mpmath.laguerre fails to converge at the zeros.
+            laguerre = mpmath.fsum(mpmath.binomial(n + 2 * m, n - j) * (-z) ** j / mpmath.factorial(j)
+                                   for j in range(n + 1))
+            return (-1) ** n * mpmath.factorial(n) * mpmath.exp(-z / 2) * z ** (m + mpf(1) / 2) * laguerre
+    return None
+
+
 def whittaker_tables() -> None:
     rows = []
-    for kappa in [-2.0, -0.5, 0.0, 0.5, 1.5, 3.0]:
-        for mu in [0.25, 0.5, 1.0, 1.5, 2.3]:
-            for z in [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]:
+    # kappa -/+ mu - 1/2 a non-negative integer, where W reduces to a Laguerre
+    # polynomial, occurs for example at (kappa, mu) = (1.5, 1.0), (2.0, 0.5),
+    # (3.0, 1.5), (5.0, 2.5), (1.5, 0.0) and (1.2, -1.3).
+    for kappa in [-5.0, -2.0, -1.3, -0.5, 0.0, 0.5, 1.2, 1.5, 2.0, 3.0, 4.75, 5.0]:
+        for mu in [-1.3, 0.0, 0.25, 0.5, 1.0, 1.5, 2.3, 2.5, 3.5]:
+            for z in [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 50.0, 100.0, 1e3]:
                 k, m, zz = mpf(kappa), mpf(mu), mpf(z)
-                wm = mpmath.whitm(k, m, zz)
-                ww = mpmath.whitw(k, m, zz)
-                dm = mpmath.diff(lambda t: mpmath.whitm(k, m, t), zz)
-                dw = mpmath.diff(lambda t: mpmath.whitw(k, m, t), zz)
+                # Degenerate parameters put exact zeros on the grid (M and W are
+                # proportional to 1 - z at kappa = 3/2, mu = 0).
+                wm = mpmath.whitm(k, m, zz, zeroprec=ZEROPREC)
+                dm = mpmath.diff(lambda t: mpmath.whitm(k, m, t, zeroprec=ZEROPREC), zz)
+                if whittaker_w_degenerate(k, m, zz) is None:
+                    ww = mpmath.whitw(k, m, zz)
+                    dw = mpmath.diff(lambda t: mpmath.whitw(k, m, t), zz)
+                else:
+                    ww = whittaker_w_degenerate(k, m, zz)
+                    dw = mpmath.diff(lambda t: whittaker_w_degenerate(k, m, t), zz)
+                    try:
+                        agree(ww, mpmath.whitw(k, m, zz), f"W({kappa}, {mu}, {z}) Laguerre form",
+                              rel=mpf(10) ** -25)
+                    except ValueError:
+                        pass  # whitw does not converge at the zeros of the polynomial
                 # Wronskian W{M, W} = -Gamma(1+2mu)/Gamma(1/2+mu-kappa) (DLMF section 13.14)
                 agree(wm * dw - dm * ww, -mpmath.gamma(1 + 2 * m) * mpmath.rgamma(mpf(1) / 2 + m - k),
                       f"Wronskian M,W({kappa}, {mu}, {z})", rel=mpf(10) ** -25)

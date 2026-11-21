@@ -8,11 +8,6 @@
 //! ```text
 //! cargo test --release --test mpmath_reference -- --nocapture --test-threads=1
 //! ```
-//!
-//! Tests marked `#[ignore]` are known accuracy gaps: they assert
-//! [`GAP_TARGET`] on regions where the implementation is currently less
-//! accurate, and the ignore reason gives the measured error. Run them with
-//! `-- --ignored`; they fail until the gap is closed.
 
 mod reference;
 
@@ -20,14 +15,11 @@ use few_special_functions::{
     bose_einstein, clausen, coulomb, dawson, debye, fermi_dirac, fresnel, marcum_q,
     parabolic_cylinder as pcf, voigt, whittaker,
 };
-use reference::{Check, Report, Row, Table};
+use reference::{Check, Report, Table};
 
 /// A function of two or three real arguments, as listed in the check tables below.
 type Real2 = fn(f64, f64) -> f64;
 type Real3 = fn(f64, f64, f64) -> f64;
-
-/// Tolerance asserted by the known-gap tests.
-const GAP_TARGET: f64 = 1e-12;
 
 macro_rules! table {
     ($name:literal) => {
@@ -189,25 +181,16 @@ fn whittaker_functions() {
     let table = table!("whittaker");
     let inputs = &["kappa", "mu", "z"];
     let mut report = Report::default();
-    let cases: [(&str, &str, f64, Real3); 2] = [
-        ("M(kappa, mu, z)", "m", 1e-14, whittaker::whittaker_m),
-        ("dM/dz", "dm", 2e-14, whittaker::d_whittaker_m),
+    let cases: [(&str, &str, f64, Real3); 4] = [
+        ("M(kappa, mu, z)", "m", 2e-13, whittaker::whittaker_m),
+        ("dM/dz", "dm", 5e-13, whittaker::d_whittaker_m),
+        ("W(kappa, mu, z)", "w", 2e-13, whittaker::whittaker_w),
+        ("dW/dz", "dw", 5e-13, whittaker::d_whittaker_w),
     ];
     for (quantity, expected, tolerance, function) in cases {
         Check::new(&table, quantity, inputs, expected, tolerance).run(&mut report, |row| {
             function(row.get("kappa"), row.get("mu"), row.get("z"))
         });
-    }
-    let cases: [(&str, &str, f64, Real3); 2] = [
-        ("W(kappa, mu, z)", "w", 1e-11, whittaker::whittaker_w),
-        ("dW/dz", "dw", 5e-11, whittaker::d_whittaker_w),
-    ];
-    for (quantity, expected, tolerance, function) in cases {
-        Check::new(&table, quantity, inputs, expected, tolerance)
-            .domain("regular", whittaker_w_regular)
-            .run(&mut report, |row| {
-                function(row.get("kappa"), row.get("mu"), row.get("z"))
-            });
     }
 
     let table = table!("whittaker_complex");
@@ -218,42 +201,6 @@ fn whittaker_functions() {
     Check::new(&table, "W (complex)", inputs, "w", 2e-13).run_complex(&mut report, |row| {
         whittaker::whittaker_w_complex(row.complex("kappa"), row.complex("mu"), row.complex("z"))
     });
-    report.finish();
-}
-
-/// Excludes two regions: the decayed tail `kappa < 0, z >= 30`, where
-/// `|W| < 1e-7`, and the degenerate parameters where `1/2 + mu - kappa` is a
-/// non-positive integer.
-fn whittaker_w_regular(row: &Row) -> bool {
-    let (kappa, mu, z) = (row.get("kappa"), row.get("mu"), row.get("z"));
-    let c = 0.5 + mu - kappa;
-    let degenerate = c <= 0.0 && c == c.round();
-    let decayed = kappa < 0.0 && z >= 30.0;
-    !(degenerate || decayed)
-}
-
-#[test]
-#[ignore = "known accuracy gap: W and dW/dz have relative error up to 3.4e-7 where 1/2 + mu - kappa is a non-positive integer (kappa = 3, mu = 1.5, z = 0.01) and up to 5.3e-8 in the decayed tail (kappa = -2, z = 30)"]
-fn whittaker_w_degenerate_and_tail() {
-    let table = table!("whittaker");
-    let mut report = Report::default();
-    let cases: [(&str, &str, Real3); 2] = [
-        ("W(kappa, mu, z)", "w", whittaker::whittaker_w),
-        ("dW/dz", "dw", whittaker::d_whittaker_w),
-    ];
-    for (quantity, expected, function) in cases {
-        Check::new(
-            &table,
-            quantity,
-            &["kappa", "mu", "z"],
-            expected,
-            GAP_TARGET,
-        )
-        .domain("degenerate or tail", |row| !whittaker_w_regular(row))
-        .run(&mut report, |row| {
-            function(row.get("kappa"), row.get("mu"), row.get("z"))
-        });
-    }
     report.finish();
 }
 

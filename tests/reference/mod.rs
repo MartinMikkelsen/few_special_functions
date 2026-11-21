@@ -118,9 +118,6 @@ impl Report {
     }
 }
 
-/// Selects the rows a [`Check`] covers.
-pub type Domain = fn(&Row) -> bool;
-
 /// One quantity of a table checked against a stated tolerance.
 pub struct Check<'a> {
     table: &'a Table,
@@ -129,7 +126,6 @@ pub struct Check<'a> {
     expected: &'static str,
     tolerance: f64,
     parity: Option<&'static str>,
-    domain: Option<(&'static str, Domain)>,
 }
 
 impl<'a> Check<'a> {
@@ -150,20 +146,12 @@ impl<'a> Check<'a> {
             expected,
             tolerance,
             parity: None,
-            domain: None,
         }
     }
 
     /// Also report (not assert) the error of the SciPy column `column`.
     pub fn parity(mut self, column: &'static str) -> Self {
         self.parity = Some(column);
-        self
-    }
-
-    /// Restrict the check to the rows where `keep` holds; `label` names that
-    /// domain in the report.
-    pub fn domain(mut self, label: &'static str, keep: Domain) -> Self {
-        self.domain = Some((label, keep));
         self
     }
 
@@ -194,11 +182,6 @@ impl<'a> Check<'a> {
         let mut failures = Vec::new();
         let mut errors = Vec::new();
         for row in self.table.rows() {
-            if let Some((_, keep)) = self.domain
-                && !keep(&row)
-            {
-                continue;
-            }
             let expected = expected_of(&row);
             if expected.re.is_nan() {
                 continue;
@@ -235,10 +218,6 @@ impl<'a> Check<'a> {
         );
         errors.sort_by(f64::total_cmp);
         let median = errors[errors.len() / 2];
-        let label = match self.domain {
-            Some((label, _)) => format!("{} [{label}]", self.quantity),
-            None => self.quantity.to_string(),
-        };
         let scipy = self
             .parity
             .map(|_| format!(", scipy max {scipy_worst:.1e}"))
@@ -246,7 +225,7 @@ impl<'a> Check<'a> {
         println!(
             "{:<22} {:<34} n={:<4} max {:.1e} median {:.1e} tol {:.0e}{scipy}  worst at {}",
             self.table.name,
-            label,
+            self.quantity,
             errors.len(),
             worst.0,
             median,
@@ -263,8 +242,9 @@ impl<'a> Check<'a> {
                 String::new()
             };
             report.failures.push(format!(
-                "{} {label}: {total} of {} points outside tolerance {:e}:\n{}{more}",
+                "{} {}: {total} of {} points outside tolerance {:e}:\n{}{more}",
                 self.table.name,
+                self.quantity,
                 errors.len(),
                 self.tolerance,
                 failures.join("\n"),
