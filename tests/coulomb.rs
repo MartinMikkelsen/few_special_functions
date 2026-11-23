@@ -4,8 +4,7 @@ use few_special_functions::coulomb::{
     eta_from_energy_complex, f, f_complex, f_dot, f_dot_complex, f_imag, f_imag_complex, g,
     g_complex, gamow_w, gamow_w_complex, h_minus, h_minus_complex, h_plus, h_plus_complex,
     i_complex, m_regularized, normalization, normalization_complex, phase_complex, phi,
-    phi_complex, phi_dot, phi_dot_complex, psi_complex, w_minus, w_minus_complex, w_plus,
-    w_plus_complex,
+    phi_complex, phi_dot_complex, psi_complex, w_minus, w_minus_complex, w_plus, w_plus_complex,
 };
 use num_complex::Complex64;
 
@@ -145,7 +144,7 @@ fn complex_api_matches_julia() {
     );
     close(aux_g_complex(ell, charge), 0.6953128074141738, 3e-13);
     close_finite_difference(
-        phi_dot_complex(ell, charge, rho, Some(1e-5)),
+        phi_dot_complex(ell, charge, rho),
         Complex64::new(-1.5346124067228126, -0.7324876615533159),
     );
     close_finite_difference(
@@ -153,11 +152,11 @@ fn complex_api_matches_julia() {
         Complex64::new(-0.4304791661469131, 0.1122137106318588),
     );
     close_finite_difference(
-        psi_complex(1.0, charge, rho, Some(1e-5)),
+        psi_complex(1.0, charge, rho),
         Complex64::new(-0.4077716830099569, -1.083245548519231),
     );
     close_finite_difference(
-        i_complex(1.0, charge, rho, Some(1e-5)),
+        i_complex(1.0, charge, rho),
         Complex64::new(-0.8481562669467176, -0.06183677285482975),
     );
     close_complex(
@@ -185,8 +184,6 @@ fn auxiliary_api_is_complete_and_consistent() {
 #[test]
 fn finite_difference_helpers_are_consistent() {
     let (ell, charge, rho, step) = (1.0, 0.5, 2.0, 1e-5);
-    let expected_phi = (phi(ell + step, charge, rho) - phi(ell - step, charge, rho)) / (2.0 * step);
-    assert!((phi_dot(ell, charge, rho, Some(step)) - expected_phi).norm() < 1e-12);
     let expected_f = (f(ell + step, charge, rho) - f(ell - step, charge, rho)) / (2.0 * step);
     close(f_dot(ell, charge, rho, Some(step)), expected_f, 1e-12);
 }

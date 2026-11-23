@@ -138,8 +138,9 @@ function, its error on the same points is shown for comparison.
 | `whittaker_m_complex`, `whittaker_w_complex` | 6 points | 4.7e-14 | — |
 | `coulomb::f`, `coulomb::g`, `coulomb::h_plus`, `coulomb::h_minus` | ℓ ∈ {0, 0.5, 1, 2, 5, 10, 20}, η ∈ [−50, 50], ρ ∈ [1e-3, 1e3] | 4.7e-13 | — |
 | `coulomb::normalization` | ℓ ∈ [0, 5], η ∈ [−5, 10] | 6.2e-14 | — |
-| `coulomb::phase`, `coulomb::aux_g` | 4 points | 2.2e-14 | — |
-| `coulomb::psi`, `coulomb::i` | 4 points | 6.6e-9 (central difference in ℓ) | — |
+| `coulomb::phase`, `coulomb::aux_g` | the 61 points of `phi_dot` | 2.2e-14 | — |
+| `coulomb::phi_dot`, `coulomb::psi`, `coulomb::i` | ℓ ∈ {0, 0.5, 1, 1.5, 2, 3.5, 4, 6}, η ∈ {−0.7, 0.2, 0.5, 1.2, 2}, ρ ∈ [0.5, 5] | 2.0e-10 (median 2e-14) | — |
+| `coulomb::psi_complex`, `coulomb::i_complex` | 12 points with complex η, ρ | 2.7e-14 | — |
 
 ## Provenance and license
 

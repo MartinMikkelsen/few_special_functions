@@ -164,9 +164,84 @@ pub(crate) fn reciprocal_gamma(z: Complex64) -> Complex64 {
     }
 }
 
+fn cos_pi_complex(z: Complex64) -> Complex64 {
+    let nearest = z.re.round();
+    let reduced = z.re - nearest;
+    let parity = if nearest.rem_euclid(2.0) == 0.0 {
+        1.0
+    } else {
+        -1.0
+    };
+    Complex64::new(
+        parity * (PI * reduced).cos() * (PI * z.im).cosh(),
+        -parity * (PI * reduced).sin() * (PI * z.im).sinh(),
+    )
+}
+
+/// `1/Γ(z)` and its derivative `−ψ(z)/Γ(z)`. Both are entire; for `Re z < 1/2`
+/// they come from the reflection formula `1/Γ(z) = Γ(1 − z) sin(πz)/π`, so the
+/// derivative is finite at the poles of Γ, where it equals `(−1)^k k!` at
+/// `z = −k`.
+fn reciprocal_gamma_with_derivative(z: Complex64) -> (Complex64, Complex64) {
+    if z.re < 0.5 {
+        let one_minus_z = Complex64::new(1.0, 0.0) - z;
+        let gamma_reflected = gamma_complex(one_minus_z);
+        let sin = sin_pi_complex(z);
+        (
+            sin * gamma_reflected / PI,
+            gamma_reflected * (cos_pi_complex(z) - digamma_complex(one_minus_z) * sin / PI),
+        )
+    } else {
+        let value = (-log_gamma_complex(z)).exp();
+        (value, -digamma_complex(z) * value)
+    }
+}
+
+/// Whether the series of [`kummer_m_regularized`] may stop at `index`: past
+/// the leading terms, and past the zeros of `1/Γ(b + n)` at a nonpositive
+/// integer `b`, which would otherwise end the sum at a run of zero terms.
+fn regularized_series_may_stop(index: usize, b: Complex64) -> bool {
+    index >= 8 && b.re + index as f64 > 0.0
+}
+
+/// A Kahan compensated sum that also records the largest term added.
+struct CompensatedSum {
+    sum: Complex64,
+    compensation: Complex64,
+    peak: f64,
+}
+
+impl CompensatedSum {
+    fn new(start: Complex64) -> Self {
+        Self {
+            sum: start,
+            compensation: Complex64::new(0.0, 0.0),
+            peak: start.norm(),
+        }
+    }
+
+    fn add(&mut self, term: Complex64) {
+        let corrected = term - self.compensation;
+        let next = self.sum + corrected;
+        self.compensation = (next - self.sum) - corrected;
+        self.sum = next;
+        self.peak = self.peak.max(term.norm());
+    }
+
+    /// Whether `term` is below `4 ε max(|sum|, ε peak)`.
+    ///
+    /// The bound is relative: a regularized sum can be as small as `1/Γ(b)`,
+    /// so an absolute floor would stop it early. The `ε peak` floor ends a
+    /// sum that cancels to zero.
+    fn negligible(&self, term: Complex64) -> bool {
+        term.norm() <= 4.0 * f64::EPSILON * self.sum.norm().max(f64::EPSILON * self.peak)
+    }
+}
+
 /// `M(a, b, z) / Γ(b)` by its power series (DLMF 13.2.4), with the same
-/// transformation, tolerance, cap and treatment of non-finite arguments as
-/// [`kummer_m`].
+/// transformation, cap and treatment of non-finite arguments as
+/// [`kummer_m`]. The series stops when a term falls below
+/// `4 ε max(|sum|, ε max_n |term_n|)`.
 pub(crate) fn kummer_m_regularized(
     a: Complex64,
     b: Complex64,
@@ -181,19 +256,76 @@ pub(crate) fn kummer_m_regularized(
     }
 
     let mut coefficient = Complex64::new(1.0, 0.0);
-    let mut sum = reciprocal_gamma(b);
-    let mut compensation = Complex64::new(0.0, 0.0);
+    let mut sum = CompensatedSum::new(reciprocal_gamma(b));
     let max_terms = iteration_cap(MAX_KUMMER_TERMS);
     for index in 1..=max_terms {
         let previous = (index - 1) as f64;
         coefficient *= (a + previous) * z / index as f64;
         let term = coefficient * reciprocal_gamma(b + index as f64);
-        let corrected = term - compensation;
-        let next = sum + corrected;
-        compensation = (next - sum) - corrected;
-        sum = next;
-        if index >= 8 && term.norm() <= 4.0 * f64::EPSILON * sum.norm().max(1.0) {
-            return Ok(sum);
+        sum.add(term);
+        if regularized_series_may_stop(index, b) && sum.negligible(term) {
+            return Ok(sum.sum);
+        }
+    }
+    Err(SpecialError::no_convergence(family, max_terms))
+}
+
+/// `M(a, b, z) / Γ(b)` and its partial derivatives in `a` and `b`, as
+/// `[value, ∂/∂a, ∂/∂b]`.
+///
+/// The series of [`kummer_m_regularized`] is differentiated term by term:
+/// with `c_n = (a)_n zⁿ / n!`, the terms are `c_n / Γ(b + n)`,
+/// `(∂c_n/∂a) / Γ(b + n)` and `c_n (1/Γ)′(b + n)`. `∂c_n/∂a` follows the
+/// recurrence of `c_n`, so it stays finite where `(a)_n` vanishes. For
+/// `Re z < 0`, Kummer's transformation `M(a, b, z)/Γ(b) = e^z M(b − a, b, −z)/Γ(b)`
+/// is applied first and the chain rule maps its derivatives back. The series
+/// stops when each of the three terms meets the stopping rule of
+/// [`kummer_m_regularized`] for its own sum, with the same cap and treatment
+/// of non-finite arguments as [`kummer_m`].
+pub(crate) fn kummer_m_regularized_with_parameter_derivatives(
+    a: Complex64,
+    b: Complex64,
+    z: Complex64,
+    family: &'static str,
+) -> Result<[Complex64; 3], SpecialError> {
+    if !all_finite(&[a, b, z]) {
+        return Ok([COMPLEX_NAN; 3]);
+    }
+    if z.re < 0.0 {
+        let [value, d_first, d_b] =
+            kummer_m_regularized_with_parameter_derivatives(b - a, b, -z, family)?;
+        let exp_z = z.exp();
+        return Ok([exp_z * value, -exp_z * d_first, exp_z * (d_first + d_b)]);
+    }
+
+    let mut coefficient = Complex64::new(1.0, 0.0);
+    let mut coefficient_d_a = Complex64::new(0.0, 0.0);
+    let (reciprocal, reciprocal_derivative) = reciprocal_gamma_with_derivative(b);
+    let mut value = CompensatedSum::new(reciprocal);
+    let mut d_a = CompensatedSum::new(Complex64::new(0.0, 0.0));
+    let mut d_b = CompensatedSum::new(reciprocal_derivative);
+    let max_terms = iteration_cap(MAX_KUMMER_TERMS);
+    for index in 1..=max_terms {
+        let factor = z / index as f64;
+        let a_previous = a + (index - 1) as f64;
+        coefficient_d_a = (coefficient_d_a * a_previous + coefficient) * factor;
+        coefficient *= a_previous * factor;
+        let (reciprocal, reciprocal_derivative) =
+            reciprocal_gamma_with_derivative(b + index as f64);
+        let terms = [
+            coefficient * reciprocal,
+            coefficient_d_a * reciprocal,
+            coefficient * reciprocal_derivative,
+        ];
+        value.add(terms[0]);
+        d_a.add(terms[1]);
+        d_b.add(terms[2]);
+        if regularized_series_may_stop(index, b)
+            && value.negligible(terms[0])
+            && d_a.negligible(terms[1])
+            && d_b.negligible(terms[2])
+        {
+            return Ok([value.sum, d_a.sum, d_b.sum]);
         }
     }
     Err(SpecialError::no_convergence(family, max_terms))
@@ -465,6 +597,145 @@ mod tests {
     }
 
     #[test]
+    fn regularized_kummer_at_negative_integer_b() {
+        // mpmath: Σ_k (a)_k z^k / (k! Γ(b + k)) summed to k = 200 at 40 digits.
+        let a = Complex64::new(1.0, 0.5);
+        let cases = [
+            (
+                (0.0, -1.0),
+                0.0,
+                Complex64::new(-0.67793149901985677, -1.240945285117965),
+            ),
+            (
+                (0.0, -1.0),
+                3.0,
+                Complex64::new(1.2992077336620862, 0.0080102013423026438),
+            ),
+            (
+                (0.0, -1.0),
+                7.0,
+                Complex64::new(1.197529132517262, 0.39340393147269915),
+            ),
+            (
+                (0.0, -1.0),
+                8.0,
+                Complex64::new(0.45684569628005396, -1.1694798349519364),
+            ),
+            (
+                (0.0, -1.0),
+                12.0,
+                Complex64::new(0.64618404067662552, -1.0615267535985611),
+            ),
+            (
+                (-1.5, 0.7),
+                0.0,
+                Complex64::new(-0.3087429430974647, -0.065430700590213218),
+            ),
+            (
+                (-1.5, 0.7),
+                3.0,
+                Complex64::new(1.7606441487515656, -0.38825606056442416),
+            ),
+            (
+                (-1.5, 0.7),
+                7.0,
+                Complex64::new(0.051152103412455235, -14.337086751555422),
+            ),
+            (
+                (-1.5, 0.7),
+                8.0,
+                Complex64::new(8.597908788180188, 22.289036584516115),
+            ),
+            (
+                (-1.5, 0.7),
+                12.0,
+                Complex64::new(171.59162354352644, -61.620063755826685),
+            ),
+        ];
+        for ((re, im), n, expected) in cases {
+            let (b, z) = (Complex64::new(-n, 0.0), Complex64::new(re, im));
+            let actual = kummer_m_regularized(a, b, z, "test").unwrap();
+            let [value, _, _] =
+                kummer_m_regularized_with_parameter_derivatives(a, b, z, "test").unwrap();
+            for v in [actual, value] {
+                let error = (v - expected).norm() / expected.norm();
+                assert!(error < 1e-14, "b = {b}, z = {z}: relative error {error:e}");
+            }
+        }
+    }
+
+    #[test]
+    fn reciprocal_gamma_derivative_at_the_poles() {
+        // (1/Γ)′(−k) = (−1)^k k!
+        let mut factorial = 1.0;
+        for k in 0..8 {
+            if k > 0 {
+                factorial *= k as f64;
+            }
+            let (value, derivative) =
+                reciprocal_gamma_with_derivative(Complex64::new(-(k as f64), 0.0));
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            assert_eq!(value, Complex64::new(0.0, 0.0));
+            assert!(
+                (derivative - sign * factorial).norm() < 1e-13 * factorial,
+                "k = {k}"
+            );
+        }
+    }
+
+    #[test]
+    fn regularized_kummer_parameter_derivatives_match_central_differences() {
+        let step = 1e-5;
+        let cases = [
+            (
+                Complex64::new(2.0, 0.5),
+                Complex64::new(4.0, 0.0),
+                Complex64::new(0.0, -4.0),
+            ),
+            (
+                Complex64::new(-1.0, 0.5),
+                Complex64::new(-2.0, 0.0),
+                Complex64::new(0.0, -4.0),
+            ),
+            (
+                Complex64::new(-3.0, 0.5),
+                Complex64::new(-8.0, 0.0),
+                Complex64::new(0.0, -2.0),
+            ),
+            (
+                Complex64::new(0.8, -0.3),
+                Complex64::new(1.7, 0.2),
+                Complex64::new(-1.0, 2.0),
+            ),
+            (
+                Complex64::new(0.5, 0.0),
+                Complex64::new(-3.0, 0.0),
+                Complex64::new(-2.5, -0.5),
+            ),
+        ];
+        for (a, b, z) in cases {
+            let m = |a, b| kummer_m_regularized(a, b, z, "test").unwrap();
+            let [value, d_a, d_b] =
+                kummer_m_regularized_with_parameter_derivatives(a, b, z, "test").unwrap();
+            let expected_d_a = (m(a + step, b) - m(a - step, b)) / (2.0 * step);
+            let expected_d_b = (m(a, b + step) - m(a, b - step)) / (2.0 * step);
+            let scale = value.norm().max(d_a.norm()).max(d_b.norm());
+            assert!(
+                (value - m(a, b)).norm() < 1e-14 * scale,
+                "a = {a}, b = {b}, z = {z}"
+            );
+            assert!(
+                (d_a - expected_d_a).norm() < 1e-8 * scale,
+                "a = {a}, b = {b}, z = {z}"
+            );
+            assert!(
+                (d_b - expected_d_b).norm() < 1e-8 * scale,
+                "a = {a}, b = {b}, z = {z}"
+            );
+        }
+    }
+
+    #[test]
     fn real_zeta_matches_reference_values() {
         let cases = [
             (2.0, std::f64::consts::PI.powi(2) / 6.0),
@@ -529,6 +800,10 @@ mod tests {
             assert_eq!(
                 kummer_m_regularized(a, b, z, "test"),
                 expected.map(|_: ()| a)
+            );
+            assert_eq!(
+                kummer_m_regularized_with_parameter_derivatives(a, b, z, "test"),
+                expected.map(|_: ()| [a; 3])
             );
             assert_eq!(tricomi_u(a, b, z, "test"), expected.map(|_: ()| a));
             assert_eq!(

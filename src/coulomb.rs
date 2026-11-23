@@ -16,19 +16,22 @@
 //! | Steed CF2 (`H⁺'/H⁺`), modified Lentz | `\|δ − 1\| ≤ 2ε` | 1 000 000 terms |
 //! | Taylor steps of `G` inside the turning point | two successive terms below `ε/4` | 2 000 terms per step |
 //! | Backward Runge–Kutta integration of real `G` outside Steed's domain | fixed steps | 2 000 000 steps |
-//! | Kummer series of the complex representations | term below `4 ε max(1, \|sum\|)` | 100 000 terms |
+//! | Kummer series `M` of the complex representations | term below `4 ε max(1, \|sum\|)` | 100 000 terms |
+//! | Regularized Kummer series `M/Γ(b)` and its parameter derivatives | term below `4 ε max(\|sum\|, ε max \|term\|)` | 100 000 terms |
 //!
 //! Reaching a cap gives [`SpecialError::NoConvergence`] from the `*_checked`
 //! functions and NaN from the others. The asymptotic series that starts the
 //! backward integration is truncated at its smallest term, within 1 000 terms.
-//! The order derivatives ([`f_dot`], [`phi_dot`] and the functions built on
-//! them) are central differences and have no tolerance of their own.
+//! The order derivative [`phi_dot`], and [`psi`] and [`i`] built on it,
+//! differentiate the Kummer series term by term and share its tolerance and
+//! cap. [`f_dot`] is a central difference and has no tolerance of its own.
 
 use crate::SpecialError;
 use crate::error::iteration_cap;
 use crate::numerics::{
-    digamma_complex, gamma_complex, kummer_m, kummer_m_regularized, log_gamma_complex,
-    reciprocal_gamma, tricomi_u,
+    digamma_complex, gamma_complex, kummer_m, kummer_m_regularized,
+    kummer_m_regularized_with_parameter_derivatives, log_gamma_complex, reciprocal_gamma,
+    tricomi_u,
 };
 use num_complex::Complex64;
 use std::f64::consts::PI;
@@ -1132,7 +1135,7 @@ fn finite_difference_step(step: Option<f64>) -> Option<f64> {
     (step.is_finite() && step > 0.0).then_some(step)
 }
 
-/// Central order derivative of [`phi`].
+/// Order derivative `∂Φ_ℓ(η, ρ)/∂ℓ` of [`phi`].
 ///
 /// # Examples
 ///
@@ -1140,11 +1143,11 @@ fn finite_difference_step(step: Option<f64>) -> Option<f64> {
 /// use few_special_functions::coulomb::phi_dot;
 ///
 /// // mpmath: ∂Φ_ℓ/∂ℓ at (ℓ, η, ρ) = (1, 0.5, 2) is −1.3983721906603922
-/// let v = phi_dot(1.0, 0.5, 2.0, None);
-/// assert!((v.re + 1.398_372_190_660_392_2).abs() < 1e-8 && v.im.abs() < 1e-8);
+/// let v = phi_dot(1.0, 0.5, 2.0);
+/// assert!((v.re + 1.398_372_190_660_392_2).abs() < 1e-13 && v.im.abs() < 1e-13);
 /// ```
-pub fn phi_dot(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
-    phi_dot_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn phi_dot(ell: f64, eta: f64, rho: f64) -> Complex64 {
+    phi_dot_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`phi_dot`], reporting a numerical failure instead of returning NaN.
@@ -1159,21 +1162,17 @@ pub fn phi_dot(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
 /// ```
 /// use few_special_functions::coulomb::{phi_dot, phi_dot_checked};
 ///
-/// assert_eq!(phi_dot_checked(1.0, 0.5, 2.0, None), Ok(phi_dot(1.0, 0.5, 2.0, None)));
+/// assert_eq!(phi_dot_checked(1.0, 0.5, 2.0), Ok(phi_dot(1.0, 0.5, 2.0)));
 /// ```
-pub fn phi_dot_checked(
-    ell: f64,
-    eta: f64,
-    rho: f64,
-    step: Option<f64>,
-) -> Result<Complex64, SpecialError> {
-    let Some(step) = finite_difference_step(step) else {
-        return Ok(NAN);
-    };
-    Ok((phi_checked(ell + step, eta, rho)? - phi_checked(ell - step, eta, rho)?) / (2.0 * step))
+pub fn phi_dot_checked(ell: f64, eta: f64, rho: f64) -> Result<Complex64, SpecialError> {
+    phi_dot_complex_checked(ell.into(), eta.into(), rho.into())
 }
 
-/// Central order derivative of [`phi_complex`].
+/// Order derivative `∂Φ_ℓ(η, ρ)/∂ℓ` of [`phi_complex`].
+///
+/// With `Φ_ℓ = (2ηρ)^{ℓ+1} e^{iρ} M̃(ℓ+1+iη, 2ℓ+2, −2iρ)` and `M̃ = M/Γ(b)`,
+/// the derivative is `(2ηρ)^{ℓ+1} e^{iρ} [ln(2ηρ) M̃ + ∂M̃/∂a + 2 ∂M̃/∂b]`,
+/// with the parameter derivatives of `M̃` summed from its power series.
 ///
 /// # Examples
 ///
@@ -1185,17 +1184,11 @@ pub fn phi_dot_checked(
 ///     Complex64::new(1.0, 0.0),
 ///     Complex64::new(0.5, 0.0),
 ///     Complex64::new(2.0, 0.0),
-///     None,
 /// );
-/// assert_eq!(v, phi_dot(1.0, 0.5, 2.0, None));
+/// assert_eq!(v, phi_dot(1.0, 0.5, 2.0));
 /// ```
-pub fn phi_dot_complex(
-    ell: Complex64,
-    eta: Complex64,
-    rho: Complex64,
-    step: Option<f64>,
-) -> Complex64 {
-    phi_dot_complex_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn phi_dot_complex(ell: Complex64, eta: Complex64, rho: Complex64) -> Complex64 {
+    phi_dot_complex_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`phi_dot_complex`], reporting a numerical failure instead of returning NaN.
@@ -1212,21 +1205,22 @@ pub fn phi_dot_complex(
 /// use num_complex::Complex64;
 ///
 /// let (ell, eta, rho) = (Complex64::new(1.0, 0.0), Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0));
-/// assert_eq!(phi_dot_complex_checked(ell, eta, rho, None), Ok(phi_dot_complex(ell, eta, rho, None)));
+/// assert_eq!(phi_dot_complex_checked(ell, eta, rho), Ok(phi_dot_complex(ell, eta, rho)));
 /// ```
 pub fn phi_dot_complex_checked(
     ell: Complex64,
     eta: Complex64,
     rho: Complex64,
-    step: Option<f64>,
 ) -> Result<Complex64, SpecialError> {
-    let Some(step) = finite_difference_step(step) else {
-        return Ok(NAN);
-    };
-    Ok(
-        (phi_complex_checked(ell + step, eta, rho)? - phi_complex_checked(ell - step, eta, rho)?)
-            / (2.0 * step),
-    )
+    let imaginary = Complex64::i();
+    let base = 2.0 * eta * rho;
+    let [m, dm_da, dm_db] = kummer_m_regularized_with_parameter_derivatives(
+        ell + 1.0 + imaginary * eta,
+        2.0 * ell + 2.0,
+        -2.0 * imaginary * rho,
+        FAMILY,
+    )?;
+    Ok(base.powc(ell + 1.0) * (imaginary * rho).exp() * (base.ln() * m + dm_da + 2.0 * dm_db))
 }
 
 /// Central order derivative of [`f`].
@@ -1322,7 +1316,9 @@ pub fn f_dot_complex_checked(
     )
 }
 
-/// Coulomb auxiliary `Psi`.
+/// Coulomb auxiliary `Psi`,
+/// `Ψ_ℓ(η, ρ) = w_ℓ(η) ∂Φ_ℓ/∂ℓ / 2 + ∂Φ_{−ℓ−1}/∂ℓ / 2`, with [`gamow_w`] for
+/// `w_ℓ` and [`phi_dot`] for the order derivatives; NaN where [`gamow_w`] is.
 ///
 /// # Examples
 ///
@@ -1330,11 +1326,11 @@ pub fn f_dot_complex_checked(
 /// use few_special_functions::coulomb::psi;
 ///
 /// // mpmath: Ψ_1(0.5, 2) = −3.2653661390660610
-/// let v = psi(1.0, 0.5, 2.0, None);
-/// assert!((v.re + 3.265_366_139_066_061).abs() < 1e-7 && v.im.abs() < 1e-7);
+/// let v = psi(1.0, 0.5, 2.0);
+/// assert!((v.re + 3.265_366_139_066_061).abs() < 1e-13 && v.im.abs() < 1e-13);
 /// ```
-pub fn psi(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
-    psi_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn psi(ell: f64, eta: f64, rho: f64) -> Complex64 {
+    psi_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`psi`], reporting a numerical failure instead of returning NaN.
@@ -1349,22 +1345,11 @@ pub fn psi(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
 /// ```
 /// use few_special_functions::coulomb::{psi, psi_checked};
 ///
-/// assert_eq!(psi_checked(1.0, 0.5, 2.0, None), Ok(psi(1.0, 0.5, 2.0, None)));
+/// assert_eq!(psi_checked(1.0, 0.5, 2.0), Ok(psi(1.0, 0.5, 2.0)));
 /// ```
-pub fn psi_checked(
-    ell: f64,
-    eta: f64,
-    rho: f64,
-    step: Option<f64>,
-) -> Result<Complex64, SpecialError> {
-    let Some(step) = finite_difference_step(step) else {
-        return Ok(NAN);
-    };
-    let step = Some(step);
-    Ok(
-        gamow_w(ell, eta) * phi_dot_checked(ell, eta, rho, step)? / 2.0
-            + phi_dot_checked(-ell - 1.0, eta, rho, step)? / 2.0,
-    )
+pub fn psi_checked(ell: f64, eta: f64, rho: f64) -> Result<Complex64, SpecialError> {
+    Ok(gamow_w(ell, eta) * phi_dot_checked(ell, eta, rho)? / 2.0
+        + phi_dot_checked(-ell - 1.0, eta, rho)? / 2.0)
 }
 
 /// Coulomb auxiliary `Psi` with complex `eta` and `rho`.
@@ -1375,11 +1360,11 @@ pub fn psi_checked(
 /// use few_special_functions::coulomb::{psi, psi_complex};
 /// use num_complex::Complex64;
 ///
-/// let v = psi_complex(1.0, Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0), None);
-/// assert!((v - psi(1.0, 0.5, 2.0, None)).norm() < 1e-12);
+/// let v = psi_complex(1.0, Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0));
+/// assert!((v - psi(1.0, 0.5, 2.0)).norm() < 1e-12);
 /// ```
-pub fn psi_complex(ell: f64, eta: Complex64, rho: Complex64, step: Option<f64>) -> Complex64 {
-    psi_complex_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn psi_complex(ell: f64, eta: Complex64, rho: Complex64) -> Complex64 {
+    psi_complex_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`psi_complex`], reporting a numerical failure instead of returning NaN.
@@ -1396,25 +1381,22 @@ pub fn psi_complex(ell: f64, eta: Complex64, rho: Complex64, step: Option<f64>) 
 /// use num_complex::Complex64;
 ///
 /// let (eta, rho) = (Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0));
-/// assert_eq!(psi_complex_checked(1.0, eta, rho, None), Ok(psi_complex(1.0, eta, rho, None)));
+/// assert_eq!(psi_complex_checked(1.0, eta, rho), Ok(psi_complex(1.0, eta, rho)));
 /// ```
 pub fn psi_complex_checked(
     ell: f64,
     eta: Complex64,
     rho: Complex64,
-    step: Option<f64>,
 ) -> Result<Complex64, SpecialError> {
-    let Some(step) = finite_difference_step(step) else {
-        return Ok(NAN);
-    };
-    let step = Some(step);
     Ok(
-        gamow_w_complex(ell, eta) * phi_dot_complex_checked(ell.into(), eta, rho, step)? / 2.0
-            + phi_dot_complex_checked((-ell - 1.0).into(), eta, rho, step)? / 2.0,
+        gamow_w_complex(ell, eta) * phi_dot_complex_checked(ell.into(), eta, rho)? / 2.0
+            + phi_dot_complex_checked((-ell - 1.0).into(), eta, rho)? / 2.0,
     )
 }
 
-/// Coulomb auxiliary `I`.
+/// Coulomb auxiliary `I`, `I_ℓ(η, ρ) = C_ℓ(η) Γ(2ℓ+2) Ψ_ℓ(η, ρ) / (2η)^{ℓ+1}`,
+/// with [`normalization`] for `C_ℓ`, [`psi`] for `Ψ_ℓ` and the principal
+/// branch of the power for `η < 0`.
 ///
 /// # Examples
 ///
@@ -1422,11 +1404,11 @@ pub fn psi_complex_checked(
 /// use few_special_functions::coulomb::i;
 ///
 /// // mpmath: I_1(0.5, 2) = −2.7504022966664935
-/// let v = i(1.0, 0.5, 2.0, None);
-/// assert!((v.re + 2.750_402_296_666_493_5).abs() < 1e-7 && v.im.abs() < 1e-7);
+/// let v = i(1.0, 0.5, 2.0);
+/// assert!((v.re + 2.750_402_296_666_493_5).abs() < 1e-13 && v.im.abs() < 1e-13);
 /// ```
-pub fn i(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
-    i_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn i(ell: f64, eta: f64, rho: f64) -> Complex64 {
+    i_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`i`], reporting a numerical failure instead of returning NaN.
@@ -1441,18 +1423,12 @@ pub fn i(ell: f64, eta: f64, rho: f64, step: Option<f64>) -> Complex64 {
 /// ```
 /// use few_special_functions::coulomb::{i, i_checked};
 ///
-/// assert_eq!(i_checked(1.0, 0.5, 2.0, None), Ok(i(1.0, 0.5, 2.0, None)));
+/// assert_eq!(i_checked(1.0, 0.5, 2.0), Ok(i(1.0, 0.5, 2.0)));
 /// ```
-pub fn i_checked(
-    ell: f64,
-    eta: f64,
-    rho: f64,
-    step: Option<f64>,
-) -> Result<Complex64, SpecialError> {
-    Ok(
-        normalization(ell, eta) * libm::tgamma(2.0 * ell + 2.0) / (2.0 * eta).powf(ell + 1.0)
-            * psi_checked(ell, eta, rho, step)?,
-    )
+pub fn i_checked(ell: f64, eta: f64, rho: f64) -> Result<Complex64, SpecialError> {
+    Ok(normalization(ell, eta) * libm::tgamma(2.0 * ell + 2.0)
+        / Complex64::from(2.0 * eta).powf(ell + 1.0)
+        * psi_checked(ell, eta, rho)?)
 }
 
 /// Coulomb auxiliary `I` with complex `eta` and `rho`.
@@ -1463,11 +1439,11 @@ pub fn i_checked(
 /// use few_special_functions::coulomb::{i, i_complex};
 /// use num_complex::Complex64;
 ///
-/// let v = i_complex(1.0, Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0), None);
-/// assert!((v - i(1.0, 0.5, 2.0, None)).norm() < 1e-12);
+/// let v = i_complex(1.0, Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0));
+/// assert!((v - i(1.0, 0.5, 2.0)).norm() < 1e-12);
 /// ```
-pub fn i_complex(ell: f64, eta: Complex64, rho: Complex64, step: Option<f64>) -> Complex64 {
-    i_complex_checked(ell, eta, rho, step).unwrap_or(NAN)
+pub fn i_complex(ell: f64, eta: Complex64, rho: Complex64) -> Complex64 {
+    i_complex_checked(ell, eta, rho).unwrap_or(NAN)
 }
 
 /// [`i_complex`], reporting a numerical failure instead of returning NaN.
@@ -1484,18 +1460,17 @@ pub fn i_complex(ell: f64, eta: Complex64, rho: Complex64, step: Option<f64>) ->
 /// use num_complex::Complex64;
 ///
 /// let (eta, rho) = (Complex64::new(0.5, 0.0), Complex64::new(2.0, 0.0));
-/// assert_eq!(i_complex_checked(1.0, eta, rho, None), Ok(i_complex(1.0, eta, rho, None)));
+/// assert_eq!(i_complex_checked(1.0, eta, rho), Ok(i_complex(1.0, eta, rho)));
 /// ```
 pub fn i_complex_checked(
     ell: f64,
     eta: Complex64,
     rho: Complex64,
-    step: Option<f64>,
 ) -> Result<Complex64, SpecialError> {
     Ok(
         normalization_complex(ell.into(), eta) * gamma_complex((2.0 * ell + 2.0).into())
             / (2.0 * eta).powf(ell + 1.0)
-            * psi_complex_checked(ell, eta, rho, step)?,
+            * psi_complex_checked(ell, eta, rho)?,
     )
 }
 
@@ -1523,7 +1498,9 @@ mod tests {
             assert_eq!(f_complex_checked(ell, eta, rho).err(), expected);
             assert_eq!(h_plus_complex_checked(ell, eta, rho).err(), expected);
             assert_eq!(phi_checked(1.0, 0.5, 2.0).err(), expected);
-            assert!(i(1.0, 0.5, 2.0, None).re.is_nan());
+            assert_eq!(phi_dot_checked(1.0, 0.5, 2.0).err(), expected);
+            assert_eq!(i_checked(1.0, 0.5, 2.0).err(), expected);
+            assert!(i(1.0, 0.5, 2.0).re.is_nan());
         });
     }
 
@@ -1535,7 +1512,7 @@ mod tests {
         assert!(gamow_w(0.3, 1.0).is_nan());
         assert!(gamow_w(1.0, 0.0).is_nan());
         assert!(aux_g(1.0, 0.0).is_nan());
-        assert!(phi_dot(1.0, 0.5, 2.0, Some(-1.0)).re.is_nan());
+        assert!(f_dot(1.0, 0.5, 2.0, Some(-1.0)).is_nan());
         assert_eq!(g_checked(f64::NAN, 0.5, 2.0).map(f64::is_nan), Ok(true));
         assert_eq!(
             f_checked(1.0, 0.5, f64::INFINITY).map(f64::is_nan),
