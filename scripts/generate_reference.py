@@ -487,24 +487,94 @@ def coulomb_phi(ell, eta, rho):
     return (2 * eta * rho) ** (ell + 1) * mpmath.expj(rho) * total
 
 
+def coulomb_phi_dot(ell, eta, rho):
+    """d phi_l / d l, from the series of `coulomb_phi` differentiated term by term.
+
+    With c_k = (a)_k z^k / k!, a = l+1+i eta and b = 2l+2, the term
+    c_k / Gamma(b+k) has l-derivative (dc_k/da) / Gamma(b+k) + 2 c_k (1/Gamma)'(b+k),
+    where (1/Gamma)'(x) = -psi(x)/Gamma(x), and (-1)^n n! at x = -n.
+    """
+    a, b, z = ell + 1 + 1j * eta, 2 * ell + 2, -2j * rho
+
+    def rgamma_prime(x):
+        if x == mpmath.floor(x) and x <= 0:
+            n = int(-x)
+            return (-1) ** n * mpmath.factorial(n)
+        return -mpmath.digamma(x) * mpmath.rgamma(x)
+
+    value, derivative = mpc(0), mpc(0)
+    term, term_d_a, k = mpc(1), mpc(0), 0
+    while True:
+        r, r_prime = mpmath.rgamma(b + k), rgamma_prime(b + k)
+        value += term * r
+        contribution = term_d_a * r + 2 * term * r_prime
+        derivative += contribution
+        if k > abs(z) + 10 and abs(contribution) < abs(derivative) * mpf(10) ** (-DPS) \
+                and abs(term * r) < abs(value) * mpf(10) ** (-DPS):
+            break
+        term_d_a = (term_d_a * (a + k) + term) * z / (k + 1)
+        term *= (a + k) * z / (k + 1)
+        k += 1
+    base = 2 * eta * rho
+    return base ** (ell + 1) * mpmath.expj(rho) * (mpmath.log(base) * value + derivative)
+
+
+def coulomb_psi_i(ell, eta, rho):
+    """(psi, i) at integer or half-integer l, with d phi/dl evaluated two ways."""
+    def dphi(order):
+        numeric = mpmath.diff(lambda t: coulomb_phi(t, eta, rho), order)
+        analytic = coulomb_phi_dot(order, eta, rho)
+        agree(numeric, analytic, f"dphi/dl at ({order}, {eta}, {rho})", rel=mpf(10) ** -25)
+        return analytic
+
+    start = 0 if ell == int(ell) else mpf(1) / 2
+    gamow = mpmath.fprod(1 + (start + j) ** 2 / eta**2 for j in range(int(ell - start) + 1))
+    psi = gamow * dphi(ell) / 2 + dphi(-ell - 1) / 2
+    # C_l(eta) Gamma(2l+2) written with log-gamma, as in the complex Rust code.
+    normalization_gamma = mpmath.exp(ell * mpmath.log(2) - mpmath.pi * eta / 2
+                                     + (mpmath.loggamma(ell + 1 + 1j * eta)
+                                        + mpmath.loggamma(ell + 1 - 1j * eta)) / 2)
+    return psi, normalization_gamma / (2 * eta) ** (ell + 1) * psi
+
+
 def coulomb_auxiliary_tables() -> None:
     rows = []
-    for ell, eta, rho in [(1.0, 0.5, 2.0), (1.0, 0.2, 1.5), (2.0, 1.2, 3.0), (0.0, 2.0, 0.7)]:
+    points = [(1.0, 0.5, 2.0), (1.0, 0.2, 1.5), (2.0, 1.2, 3.0), (0.0, 2.0, 0.7)]
+    points += [(ell, eta, rho) for ell in (0.0, 1.0, 2.0, 4.0, 6.0)
+               for eta in (0.5, -0.7, 2.0) for rho in (0.5, 2.0, 5.0)]
+    points += [(ell, eta, rho) for ell in (0.5, 1.5, 3.5) for eta in (0.5, -0.7)
+               for rho in (1.0, 4.0)]
+    for ell, eta, rho in points:
         l, e, r = mpf(ell), mpf(eta), mpf(rho)
         phase = r - l * mpmath.pi / 2 - e * mpmath.log(2 * r) + mpmath.loggamma(mpc(l + 1, e)).imag
-        aux_g = mpmath.digamma(mpc(l + 1, e)).real - mpmath.log(e)
-        gamow = mpmath.fprod(1 + j**2 / e**2 for j in range(0, int(ell) + 1))
-        dphi = lambda order: mpmath.diff(lambda t: coulomb_phi(t, e, r), order)
-        psi = gamow * dphi(l) / 2 + dphi(-l - 1) / 2
-        i_value = mpmath.coulombc(l, e) * mpmath.gamma(2 * l + 2) / (2 * e) ** (l + 1) * psi
+        aux_g = mpmath.digamma(mpc(l + 1, e)).real - mpmath.log(abs(e))
+        psi, i_value = coulomb_psi_i(l, e, r)
         rows.append([fmt_float(ell), fmt_float(eta), fmt_float(rho), fmt(phase), fmt(aux_g),
+                     *complex_cols(coulomb_phi_dot(l, e, r)),
                      *complex_cols(psi), *complex_cols(i_value)])
     write("coulomb_auxiliary",
           "phase = rho - l pi/2 - eta ln(2 rho) + arg Gamma(l+1+i eta); "
-          "aux_g = Re psi(l+1+i eta) - ln eta; "
-          "psi = w_l(eta) dphi_l/dl / 2 + dphi_{-l-1}/dl / 2 with w_l = prod_j (1 + j^2/eta^2); "
+          "aux_g = Re psi(l+1+i eta) - ln|eta|; "
+          "phi_dot = d phi_l/dl with phi_l = (2 eta rho)^(l+1) e^(i rho) M(l+1+i eta, 2l+2, -2 i rho) / Gamma(2l+2); "
+          "psi = w_l(eta) phi_dot_l / 2 + phi_dot_{-l-1} / 2 with w_l = prod_j (1 + j^2/eta^2), "
+          "j = 0, 1, ..., l or 1/2, 3/2, ..., l; "
           "i = C_l(eta) Gamma(2l+2) / (2 eta)^(l+1) psi",
-          ["ell", "eta", "rho", "phase", "aux_g", "psi_re", "psi_im", "i_re", "i_im"], rows)
+          ["ell", "eta", "rho", "phase", "aux_g", "phi_dot_re", "phi_dot_im",
+           "psi_re", "psi_im", "i_re", "i_im"], rows)
+
+    rows = []
+    for ell in (1.0, 2.0, 1.5):
+        for eta in (complex(0.5, 0.2), complex(-0.7, 0.1)):
+            for rho in (complex(1.2, 0.1), complex(2.0, -0.3)):
+                e, r = mpc(eta), mpc(rho)
+                psi, i_value = coulomb_psi_i(mpf(ell), e, r)
+                rows.append([fmt_float(ell), fmt_float(eta.real), fmt_float(eta.imag),
+                             fmt_float(rho.real), fmt_float(rho.imag),
+                             *complex_cols(psi), *complex_cols(i_value)])
+    write("coulomb_auxiliary_complex",
+          "psi and i of coulomb_auxiliary at complex eta and rho; "
+          "C_l(eta) Gamma(2l+2) = exp(l ln 2 - pi eta/2 + (lnGamma(l+1+i eta) + lnGamma(l+1-i eta))/2)",
+          ["ell", "eta_re", "eta_im", "rho_re", "rho_im", "psi_re", "psi_im", "i_re", "i_im"], rows)
 
 
 TABLES = {

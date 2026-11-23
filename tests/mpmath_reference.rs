@@ -224,13 +224,25 @@ fn coulomb_normalization_and_auxiliary() {
     Check::new(&table, "aux_g", inputs, "aux_g", 1e-13).run(&mut report, |row| {
         coulomb::aux_g(row.get("ell"), row.get("eta"))
     });
-    // psi and i take a central difference in the order with the default step
-    // eps^(1/3); rounding in phi divided by that step limits them to about 1e-8.
-    Check::new(&table, "psi", inputs, "psi", 2e-8).run_complex(&mut report, |row| {
-        coulomb::psi(row.get("ell"), row.get("eta"), row.get("rho"), None)
+    // The Kummer series of phi cancels for larger rho: at rho = 5 phi itself is
+    // good to about 6e-11, and phi_dot, psi and i inherit that.
+    Check::new(&table, "phi_dot", inputs, "phi_dot", 2e-10).run_complex(&mut report, |row| {
+        coulomb::phi_dot(row.get("ell"), row.get("eta"), row.get("rho"))
     });
-    Check::new(&table, "i", inputs, "i", 2e-8).run_complex(&mut report, |row| {
-        coulomb::i(row.get("ell"), row.get("eta"), row.get("rho"), None)
+    Check::new(&table, "psi", inputs, "psi", 5e-10).run_complex(&mut report, |row| {
+        coulomb::psi(row.get("ell"), row.get("eta"), row.get("rho"))
+    });
+    Check::new(&table, "i", inputs, "i", 5e-10).run_complex(&mut report, |row| {
+        coulomb::i(row.get("ell"), row.get("eta"), row.get("rho"))
+    });
+
+    let table = table!("coulomb_auxiliary_complex");
+    let inputs = &["ell", "eta_re", "eta_im", "rho_re", "rho_im"];
+    Check::new(&table, "psi (complex)", inputs, "psi", 1e-13).run_complex(&mut report, |row| {
+        coulomb::psi_complex(row.get("ell"), row.complex("eta"), row.complex("rho"))
+    });
+    Check::new(&table, "i (complex)", inputs, "i", 1e-13).run_complex(&mut report, |row| {
+        coulomb::i_complex(row.get("ell"), row.complex("eta"), row.complex("rho"))
     });
     report.finish();
 }
