@@ -227,22 +227,22 @@ fn coulomb_normalization_and_auxiliary() {
     // The Kummer series of phi cancels for larger rho: at rho = 5 phi itself is
     // good to about 6e-11, and phi_dot, psi and i inherit that.
     Check::new(&table, "phi_dot", inputs, "phi_dot", 2e-10).run_complex(&mut report, |row| {
-        coulomb::phi_dot(row.get("ell"), row.get("eta"), row.get("rho"))
+        coulomb::phi_dot(row.get("ell"), row.get("eta"), row.get("rho"), None)
     });
     Check::new(&table, "psi", inputs, "psi", 5e-10).run_complex(&mut report, |row| {
-        coulomb::psi(row.get("ell"), row.get("eta"), row.get("rho"))
+        coulomb::psi(row.get("ell"), row.get("eta"), row.get("rho"), None)
     });
     Check::new(&table, "i", inputs, "i", 5e-10).run_complex(&mut report, |row| {
-        coulomb::i(row.get("ell"), row.get("eta"), row.get("rho"))
+        coulomb::i(row.get("ell"), row.get("eta"), row.get("rho"), None)
     });
 
     let table = table!("coulomb_auxiliary_complex");
     let inputs = &["ell", "eta_re", "eta_im", "rho_re", "rho_im"];
     Check::new(&table, "psi (complex)", inputs, "psi", 1e-13).run_complex(&mut report, |row| {
-        coulomb::psi_complex(row.get("ell"), row.complex("eta"), row.complex("rho"))
+        coulomb::psi_complex(row.get("ell"), row.complex("eta"), row.complex("rho"), None)
     });
     Check::new(&table, "i (complex)", inputs, "i", 1e-13).run_complex(&mut report, |row| {
-        coulomb::i_complex(row.get("ell"), row.complex("eta"), row.complex("rho"))
+        coulomb::i_complex(row.get("ell"), row.complex("eta"), row.complex("rho"), None)
     });
     report.finish();
 }

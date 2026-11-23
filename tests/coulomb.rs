@@ -144,7 +144,7 @@ fn complex_api_matches_julia() {
     );
     close(aux_g_complex(ell, charge), 0.6953128074141738, 3e-13);
     close_finite_difference(
-        phi_dot_complex(ell, charge, rho),
+        phi_dot_complex(ell, charge, rho, None),
         Complex64::new(-1.5346124067228126, -0.7324876615533159),
     );
     close_finite_difference(
@@ -152,11 +152,11 @@ fn complex_api_matches_julia() {
         Complex64::new(-0.4304791661469131, 0.1122137106318588),
     );
     close_finite_difference(
-        psi_complex(1.0, charge, rho),
+        psi_complex(1.0, charge, rho, None),
         Complex64::new(-0.4077716830099569, -1.083245548519231),
     );
     close_finite_difference(
-        i_complex(1.0, charge, rho),
+        i_complex(1.0, charge, rho, None),
         Complex64::new(-0.8481562669467176, -0.06183677285482975),
     );
     close_complex(
